@@ -1,0 +1,91 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    "users": {
+      "$uid": {
+        ".read": "auth != null",
+        ".write": "auth != null && auth.uid === $uid",
+        ".validate": "newData.hasChildren(['uid', 'displayName', 'createdAt'])"
+      }
+    },
+
+    "userGroups": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        "$groupId": {
+          ".write": "auth != null && auth.uid === $uid && root.child('groups/' + $groupId + '/members/' + $uid).exists()"
+        }
+      }
+    },
+
+    "inviteCodes": {
+      "$code": {
+        ".read": "auth != null",
+        ".write": "auth != null && (!data.exists() || data.val() === newData.val())"
+      }
+    },
+
+    "activeSessions": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid"
+      }
+    },
+
+    "completedSessions": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid"
+      }
+    },
+
+    "groups": {
+      "$groupId": {
+        ".read": "auth != null && root.child('groups/' + $groupId + '/members/' + auth.uid).exists()",
+
+        "name": {
+          ".write": "auth != null && (!root.child('groups/' + $groupId + '/name').exists() ? true : root.child('groups/' + $groupId + '/members/' + auth.uid).exists())"
+        },
+        "inviteCode": {
+          ".write": "auth != null && !data.exists()"
+        },
+        "createdBy": {
+          ".write": "auth != null && !data.exists() && newData.val() === auth.uid"
+        },
+        "createdAt": {
+          ".write": "auth != null && !data.exists()"
+        },
+
+        "members": {
+          "$uid": {
+            ".write": "auth != null && auth.uid === $uid"
+          }
+        },
+
+        "live": {
+          "$uid": {
+            ".write": "auth != null && auth.uid === $uid && root.child('groups/' + $groupId + '/members/' + $uid).exists()"
+          }
+        },
+
+        "weeklyTotals": {
+          "$weekId": {
+            "$uid": {
+              ".write": "auth != null && auth.uid === $uid && root.child('groups/' + $groupId + '/members/' + $uid).exists() && (!data.exists() || newData.val() >= data.val())",
+              ".validate": "newData.isNumber() && newData.val() >= 0"
+            }
+          }
+        },
+
+        "messages": {
+          "$messageId": {
+            ".write": "auth != null && root.child('groups/' + $groupId + '/members/' + auth.uid).exists() && !data.exists() && newData.child('uid').val() === auth.uid",
+            ".validate": "newData.hasChildren(['uid', 'displayName', 'text', 'timestamp']) && newData.child('text').isString() && newData.child('text').val().length > 0 && newData.child('text').val().length <= 500"
+          }
+        }
+      }
+    }
+  }
+}
