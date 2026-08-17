@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { initials } from '../lib/format'
 
 const SIZES = {
@@ -9,6 +10,8 @@ const SIZES = {
 
 export default function Avatar({ name, photoURL, size = 'md', live = false, className = '' }) {
   const dim = SIZES[size] || SIZES.md
+  const [imageFailed, setImageFailed] = useState(false)
+
   return (
     <div className={`relative shrink-0 ${className}`}>
       {live && (
@@ -17,8 +20,14 @@ export default function Avatar({ name, photoURL, size = 'md', live = false, clas
       <div
         className={`relative ${dim} rounded-full overflow-hidden bg-elevated border border-border flex items-center justify-center font-display font-semibold text-text-dim`}
       >
-        {photoURL ? (
-          <img src={photoURL} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+        {photoURL && !imageFailed ? (
+          <img
+            src={photoURL}
+            alt=""
+            className="w-full h-full object-cover"
+            referrerPolicy="no-referrer"
+            onError={() => setImageFailed(true)}
+          />
         ) : (
           <span>{initials(name)}</span>
         )}
