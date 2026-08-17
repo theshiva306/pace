@@ -2,94 +2,29 @@ name: Restore Live layout
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
 
 permissions:
   contents: write
 
 jobs:
-  patch-live-layout:
+  patch:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Restore old Live presentation
-        env:
-          FILE: src/pages/GroupDetail.jsx
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
+      - name: Patch Live layout
+        run: python3 .github/scripts/restore_live_layout.py
 
-          p = Path('src/pages/GroupDetail.jsx')
-          s = p.read_text()
-
-          new_live = r'''// Live keeps the original card/list presentation while using the new realtime daily totals.
-export function Live({ memberList, live, totals, currentUid, onRefresh, refreshing, updatedAt, onSelectMember }) {
-  const liveMembers = memberList.filter((m) => {
-    const status = live[m.uid]?.status
-    return status === 'active' || status === 'paused' || status === 'onBreak'
-  })
-  const idleMembers = memberList.filter((m) => !liveMembers.some((x) => x.uid === m.uid))
-
-  return <div className="animate-fade-in">
-    <RefreshRow label="TODAY" onRefresh={onRefresh} refreshing={refreshing} updatedAt={updatedAt} />
-
-    {liveMembers.length === 0 ? (
-      <p className="text-text-dim text-sm py-6">No one studying</p>
-    ) : (
-      <div className="grid grid-cols-3 gap-3 mb-8">
-        {liveMembers.map((m) => {
-          const status = live[m.uid]?.status
-          const paused = status === 'paused' || status === 'onBreak'
-          return <LiveTile key={m.uid} member={m} seconds={totals[m.uid] || 0} self={m.uid === currentUid} paused={paused} status={status} onClick={() => onSelectMember(m.uid)} />
-        })}
-      </div>
-    )}
-
-    {idleMembers.length > 0 && <>
-      <div className="text-[13px] tracking-[0.25em] text-text-faint mb-3">NOT FOCUSING</div>
-      <div className="flex flex-col gap-3">
-        {idleMembers.map((m) => (
-          <button key={m.uid} onClick={() => onSelectMember(m.uid)} className="flex items-center gap-3 text-left w-full">
-            <Avatar name={m.displayName} photoURL={m.photoURL} size="sm" />
-            <span className="text-sm text-text-dim flex-1 truncate">{m.uid === currentUid ? 'You' : m.displayName}</span>
-            <span className="text-xs tabular-nums text-text-faint">{formatDuration(totals[m.uid] || 0)}</span>
-          </button>
-        ))}
-      </div>
-    </>}
-  </div>
-}
-
-function LiveTile({ member, seconds, self, paused, status, onClick }) {
-  const label = paused ? (status === 'onBreak' ? 'BREAK' : 'PAUSED') : 'STUDYING'
-  return <button onClick={onClick} className={`flex flex-col items-center gap-2 bg-surface border border-border rounded-2xl py-4 ${paused ? 'opacity-55' : ''}`}>
-    <Avatar name={member.displayName} photoURL={member.photoURL} size="md" live={!paused} />
-    <span className="text-xs font-medium truncate max-w-full px-1">{self ? 'You' : member.displayName}</span>
-    <span className={`text-[10px] tracking-wide ${paused ? 'text-text-faint' : 'text-live'}`}>{label}</span>
-    <span className={`text-xs tabular-nums ${paused ? 'text-text-faint' : 'text-live'}`}>{formatDuration(seconds)}</span>
-  </button>
-}'''
-
-          pattern = r'// Daily leaderboard:.*?\nfunction Chat\('
-          replacement = new_live + '\n\nfunction Chat('
-          updated, n = re.subn(pattern, replacement, s, count=1, flags=re.S)
-          if n != 1:
-              raise SystemExit('Could not find the current Live block')
-          if updated == s:
-              print('No changes needed')
-              raise SystemExit(0)
-          p.write_text(updated)
-          PY
-
-      - name: Commit patch
+      - name: Commit changes
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src/pages/GroupDetail.jsx
           if git diff --cached --quiet; then
-            echo "No changes to commit"
+            echo "No changes needed"
           else
             git commit -m "Restore old Live tab layout"
             git push
