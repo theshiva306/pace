@@ -23,8 +23,7 @@
     "userStats": {
       "$uid": {
         ".read": "auth != null",
-        ".write": "auth != null && auth.uid === $uid",
-        ".validate": "newData.hasChildren(['weeklyTotals', 'weeklySessionCounts', 'dailyTotals'])"
+        ".write": "auth != null && auth.uid === $uid"
       }
     },
 
