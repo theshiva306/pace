@@ -16,7 +16,7 @@
         ".read": "auth != null && auth.uid === $uid",
         "$groupId": {
           ".write": "auth != null && (auth.uid === $uid || root.child('groups/' + $groupId + '/adminUid').val() === auth.uid)",
-          ".validate": "newData.val() === true"
+          ".validate": "!newData.exists() || newData.val() === true"
         }
       }
     },
@@ -67,7 +67,7 @@
 
         "memberCount": {
           ".read": "auth != null",
-          ".write": "auth != null && ((!data.exists() && newData.val() === 1 && root.child('groups/' + $groupId + '/adminUid').val() === auth.uid) || (data.exists() && (root.child('groups/' + $groupId + '/adminUid').val() === auth.uid || newData.val() === data.val() + 1 || newData.val() === data.val() - 1)) )",
+          ".write": "auth != null && ((newData.val() === 1 && !data.exists() && newData.parent().child('adminUid').val() === auth.uid) || (data.exists() && ((root.child('groups/' + $groupId + '/adminUid').val() === auth.uid) || (newData.val() === data.val() + 1 && newData.parent().child('members/' + auth.uid).exists()) || (newData.val() === data.val() - 1 && !newData.parent().child('members/' + auth.uid).exists()))))",
           ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 6"
         },
 
