@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { HashRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import BottomNav from './components/BottomNav'
@@ -22,6 +23,21 @@ function Shell({ children }) {
 function Gate() {
   const { user } = useAuth()
   const location = useLocation()
+
+  useEffect(() => {
+    const vv = window.visualViewport
+    if (!vv) return
+    const syncViewport = () => {
+      document.documentElement.style.setProperty('--pace-viewport-height', `${vv.height}px`)
+    }
+    syncViewport()
+    vv.addEventListener('resize', syncViewport)
+    vv.addEventListener('scroll', syncViewport)
+    return () => {
+      vv.removeEventListener('resize', syncViewport)
+      vv.removeEventListener('scroll', syncViewport)
+    }
+  }, [])
 
   if (user === undefined) {
     return (
