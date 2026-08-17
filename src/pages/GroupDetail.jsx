@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useGroup, useWeeklyTotals } from '../hooks/useGroup'
 import { useSessionClock } from '../hooks/useSessionClock'
@@ -16,13 +16,23 @@ const TABS = ['Leaderboard', 'Live', 'Chat']
 export default function GroupDetail() {
   const { groupId } = useParams()
   const navigate = useNavigate()
+  const location = useLocation()
   const { user, profile } = useAuth()
   const { group, members, live, messages } = useGroup(groupId)
   const weekId = useMemo(() => isoWeekId(), [])
   const totals = useWeeklyTotals(groupId, weekId)
 
-  const [tab, setTab] = useState('Leaderboard')
+  // Arriving from the Timer page's live pill jumps straight to Live
+  // instead of the default Leaderboard tab.
+  const [tab, setTab] = useState(location.state?.tab === 'Live' ? 'Live' : 'Leaderboard')
   const [inviteOpen, setInviteOpen] = useState(false)
+
+  // Route params can change without unmounting this component (e.g. one
+  // pinned-group pill link to another), so re-apply the requested tab
+  // whenever the target group changes.
+  useEffect(() => {
+    setTab(location.state?.tab === 'Live' ? 'Live' : 'Leaderboard')
+  }, [groupId])
 
   const memberList = Object.entries(members).map(([uid, m]) => ({ uid, ...m }))
 

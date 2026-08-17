@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useActiveSession } from '../hooks/useActiveSession'
 import { useSessionClock } from '../hooks/useSessionClock'
+import { useMyGroups } from '../hooks/useMyGroups'
 import { formatClock, formatDuration, formatMessageTime } from '../lib/format'
 import {
   startSession, pauseSession, resumeSession, startBreak, endBreak, saveSession, deleteSession,
@@ -12,15 +14,19 @@ import Button from '../components/Button'
 import SegmentedControl from '../components/SegmentedControl'
 import Stepper from '../components/Stepper'
 import WheelColumn from '../components/WheelColumn'
-import { ChevronRight } from '../components/icons'
+import { ChevronRight, PinIcon } from '../components/icons'
 
 const HOURS = Array.from({ length: 13 }, (_, i) => i) // 0-12
 const MINUTES = Array.from({ length: 12 }, (_, i) => i * 5) // 0,5,...,55
 
 export default function Timer() {
-  const { user, groupIds } = useAuth()
+  const { user, profile, groupIds } = useAuth()
+  const navigate = useNavigate()
   const session = useActiveSession()
   const clock = useSessionClock(session)
+
+  const pinnedGroupId = profile?.pinnedGroupId || null
+  const pinnedSummary = useMyGroups(pinnedGroupId ? [pinnedGroupId] : [])[0]
 
   const [settings, setSettings] = useState(() => loadTimerSettings())
   const [setupOpen, setSetupOpen] = useState(false)
@@ -201,15 +207,19 @@ export default function Timer() {
       : clock.focusElapsed
 
   return (
-    <div className="min-h-svh flex flex-col items-center justify-center px-6">
+    <div className="min-h-svh flex flex-col items-center justify-center px-6 py-8">
+      <PinnedGroupPill
+        summary={pinnedSummary}
+        onOpen={() => navigate(`/groups/${pinnedGroupId}`, { state: { tab: 'Live' } })}
+        onPinSomething={() => navigate('/groups')}
+      />
+
       {!session && (
-        <div className="flex flex-col items-center">
-          <div className="font-display font-semibold tabular-nums leading-none select-none text-text text-[15vw] sm:text-7xl md:text-8xl mb-4">
-            00:00:00
-          </div>
+        <div className="flex flex-col items-center w-full">
+          <RingTimer label="READY" displaySeconds={0} totalSeconds={null} isPaused={false} />
           <button
             onClick={() => setSetupOpen(true)}
-            className="text-xs text-text-faint mb-10 underline decoration-dotted underline-offset-4"
+            className="text-xs text-text-faint mt-8 mb-8 underline decoration-dotted underline-offset-4"
           >
             {summaryText}
           </button>
@@ -224,12 +234,15 @@ export default function Timer() {
       )}
 
       {session && clock.isOnBreak && (
-        <div className="flex flex-col items-center">
-          <div className="text-[13px] tracking-[0.3em] text-text-faint mb-6">BREAK</div>
-          <div className="font-display font-semibold tabular-nums leading-none select-none text-accent text-[15vw] sm:text-7xl md:text-8xl">
-            {formatClock(clock.breakRemaining)}
-          </div>
-          <div className="mt-12 w-full max-w-xs">
+        <div className="flex flex-col items-center w-full">
+          <RingTimer
+            label="BREAK"
+            displaySeconds={clock.breakRemaining}
+            totalSeconds={session.breakDurationSeconds || null}
+            isPaused={false}
+            accent
+          />
+          <div className="mt-10 w-full max-w-xs">
             <Button variant="ghost" className="w-full" onClick={handleEndBreak} disabled={busy}>
               End break
             </Button>
@@ -238,19 +251,15 @@ export default function Timer() {
       )}
 
       {session && !clock.isOnBreak && (
-        <div className="flex flex-col items-center">
-          <div className="text-[13px] tracking-[0.3em] text-text-faint mb-6">
-            {clock.isPaused ? 'PAUSED' : 'FOCUSING'}
-          </div>
-          <div
-            className={`font-display font-semibold tabular-nums leading-none select-none text-[15vw] sm:text-7xl md:text-8xl ${
-              clock.isPaused ? 'text-text-faint' : 'text-accent'
-            }`}
-          >
-            {formatClock(displaySeconds)}
-          </div>
+        <div className="flex flex-col items-center w-full">
+          <RingTimer
+            label={clock.isPaused ? 'PAUSED' : 'FOCUSING'}
+            displaySeconds={displaySeconds}
+            totalSeconds={session.mode === 'countdown' ? session.targetSeconds : null}
+            isPaused={clock.isPaused}
+          />
 
-          <div className="mt-12 flex flex-col items-center gap-3 w-full max-w-xs">
+          <div className="mt-10 flex flex-col items-center gap-3 w-full max-w-xs">
             {session.breaksAllowed > 0 && (
               <Button
                 variant="ghost"
@@ -372,6 +381,92 @@ export default function Timer() {
           </div>
         </div>
       </Sheet>
+    </div>
+  )
+}
+
+// Live-group indicator above the ring. Shows the pinned group's name +
+// live count and jumps straight to that group's Live tab on tap. If
+// nothing is pinned, collapses to a quiet text link pointing at Groups
+// instead of a pill, so there's nothing implying data that isn't there.
+function PinnedGroupPill({ summary, onOpen, onPinSomething }) {
+  if (!summary) {
+    return (
+      <button
+        onClick={onPinSomething}
+        className="flex items-center gap-1.5 text-xs text-text-faint mb-8 py-1"
+      >
+        <PinIcon />
+        <span className="underline decoration-dotted underline-offset-4">Pin a group to see who's live</span>
+      </button>
+    )
+  }
+
+  const liveCount = summary.liveCount ?? 0
+
+  return (
+    <button
+      onClick={onOpen}
+      className="flex items-center gap-2.5 bg-elevated border border-border rounded-full pl-2.5 pr-3.5 py-2 mb-8 max-w-[86vw] active:scale-[0.97] transition-transform"
+    >
+      <span className="relative flex items-center justify-center w-4 h-4 shrink-0">
+        {liveCount > 0 && <span className="absolute inset-0 rounded-full bg-live/25 animate-breathe" />}
+        <span className={`relative w-1.5 h-1.5 rounded-full ${liveCount > 0 ? 'bg-live' : 'bg-text-faint'}`} />
+      </span>
+      <span className="text-xs font-semibold truncate max-w-[38vw]">{summary.name || '—'}</span>
+      <span className="w-px h-3 bg-border shrink-0" />
+      <span className="text-xs text-text-dim whitespace-nowrap">{liveCount} focusing</span>
+      <ChevronRight className="w-3.5 h-3.5 text-text-faint shrink-0" />
+    </button>
+  )
+}
+
+// The main clock, framed by a circular ring. When `totalSeconds` is known
+// (countdown session, or a break with a fixed duration) the ring's arc
+// fills to show real progress. When it's null (stopwatch, or no session
+// yet) the ring stays a static outline — a frame, not a fake progress bar.
+// Sized as a ratio of the viewport so it's the dominant thing on the page
+// on any screen, while the digit size is tied to the ring's own width
+// (not the viewport) so it can never crowd or spill past the ring edge.
+function RingTimer({ label, displaySeconds, totalSeconds, isPaused, accent }) {
+  const hasTotal = totalSeconds != null && totalSeconds > 0
+  const pct = hasTotal ? Math.min(1, Math.max(0, displaySeconds / totalSeconds)) : 0
+  const r = 46
+  const c = 2 * Math.PI * r
+  const dash = hasTotal ? c * pct : c
+
+  const ringColor = !hasTotal
+    ? 'var(--color-border-soft)'
+    : isPaused
+      ? 'var(--color-text-faint)'
+      : 'var(--color-accent)'
+
+  const timeColor = isPaused ? 'text-text-faint' : accent || hasTotal ? 'text-accent' : 'text-text'
+
+  return (
+    <div className="relative w-[86vw] max-w-[420px] md:w-[46vw] md:max-w-[460px] aspect-square flex items-center justify-center shrink-0">
+      <svg viewBox="0 0 100 100" className="absolute inset-0 w-full h-full -rotate-90 overflow-visible">
+        <circle cx="50" cy="50" r={r} fill="none" stroke="var(--color-border-soft)" strokeWidth="3" />
+        <circle
+          cx="50" cy="50" r={r} fill="none"
+          stroke={ringColor}
+          strokeWidth="3"
+          strokeLinecap="round"
+          strokeDasharray={`${dash} ${c}`}
+          className="transition-[stroke-dasharray] duration-500 ease-linear"
+        />
+      </svg>
+      <div className="flex flex-col items-center justify-center w-[72%] px-1">
+        <div className="text-[12px] tracking-[0.28em] text-text-faint mb-2.5 whitespace-nowrap">
+          {label}
+        </div>
+        <div
+          className={`font-display font-semibold tabular-nums leading-none select-none whitespace-nowrap ${timeColor}`}
+          style={{ fontSize: 'clamp(2.1rem, 9vw, 3.6rem)' }}
+        >
+          {formatClock(displaySeconds)}
+        </div>
+      </div>
     </div>
   )
 }

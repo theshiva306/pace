@@ -70,6 +70,20 @@ export function CopyIcon(props) {
   )
 }
 
+export function PinIcon({ filled, ...props }) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill={filled ? 'currentColor' : 'none'} {...props}>
+      <path
+        d="M12 2a5 5 0 00-5 5c0 3.5 5 11 5 11s5-7.5 5-11a5 5 0 00-5-5z"
+        stroke="currentColor"
+        strokeWidth={filled ? 0 : 1.7}
+        strokeLinejoin="round"
+      />
+      {!filled && <circle cx="12" cy="7" r="2" stroke="currentColor" strokeWidth="1.7" />}
+    </svg>
+  )
+}
+
 export function ShareIcon(props) {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" {...props}>

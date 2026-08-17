@@ -2,10 +2,10 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useMyGroups } from '../hooks/useMyGroups'
-import { createGroup } from '../lib/sessions'
+import { createGroup, setPinnedGroup } from '../lib/sessions'
 import Sheet from '../components/Sheet'
 import Button from '../components/Button'
-import { PlusIcon } from '../components/icons'
+import { PlusIcon, PinIcon } from '../components/icons'
 
 // Joining is link-only now (see JoinLink.jsx / the Invite button inside a
 // group) — there's no code to type here, so the only thing this "+" does
@@ -18,6 +18,22 @@ export default function Groups() {
   const [createOpen, setCreateOpen] = useState(false)
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
+  const [pinBusy, setPinBusy] = useState(false)
+
+  const pinnedGroupId = profile?.pinnedGroupId || null
+
+  async function handleTogglePin(e, groupId) {
+    e.stopPropagation() // don't trigger the row's navigate
+    if (pinBusy) return
+    setPinBusy(true)
+    try {
+      // Tapping the already-pinned group's pin unpins it; tapping any
+      // other group's pin replaces whichever was pinned before.
+      await setPinnedGroup(user.uid, pinnedGroupId === groupId ? null : groupId)
+    } finally {
+      setPinBusy(false)
+    }
+  }
 
   function closeAll() {
     setCreateOpen(false)
@@ -49,26 +65,39 @@ export default function Groups() {
       )}
 
       <div className="flex flex-col gap-3">
-        {groups.map((g) => (
-          <button
-            key={g.id}
-            onClick={() => navigate(`/groups/${g.id}`)}
-            className="text-left bg-surface border border-border rounded-2xl px-5 py-4 hover:border-text-faint transition-colors animate-rise"
-          >
-            <div className="font-display font-semibold tracking-tight uppercase text-sm mb-1">
-              {g.name || '—'}
-            </div>
-            <div className="flex items-center gap-3 text-xs text-text-faint">
-              <span>{g.memberCount ?? 0} members</span>
-              {g.liveCount > 0 && (
-                <span className="flex items-center gap-1.5 text-live">
-                  <span className="w-1.5 h-1.5 rounded-full bg-live" />
-                  {g.liveCount} live
-                </span>
-              )}
-            </div>
-          </button>
-        ))}
+        {groups.map((g) => {
+          const pinned = pinnedGroupId === g.id
+          return (
+            <button
+              key={g.id}
+              onClick={() => navigate(`/groups/${g.id}`)}
+              className="relative text-left bg-surface border border-border rounded-2xl pl-5 pr-14 py-4 hover:border-text-faint transition-colors animate-rise"
+            >
+              <div className="font-display font-semibold tracking-tight uppercase text-sm mb-1">
+                {g.name || '—'}
+              </div>
+              <div className="flex items-center gap-3 text-xs text-text-faint">
+                <span>{g.memberCount ?? 0} members</span>
+                {g.liveCount > 0 && (
+                  <span className="flex items-center gap-1.5 text-live">
+                    <span className="w-1.5 h-1.5 rounded-full bg-live" />
+                    {g.liveCount} live
+                  </span>
+                )}
+              </div>
+              <span
+                role="button"
+                aria-label={pinned ? 'Unpin from timer' : 'Pin to timer'}
+                onClick={(e) => handleTogglePin(e, g.id)}
+                className={`absolute top-1/2 -translate-y-1/2 right-4 w-9 h-9 rounded-full flex items-center justify-center transition-colors ${
+                  pinned ? 'text-accent' : 'text-text-faint hover:text-text-dim'
+                }`}
+              >
+                <PinIcon filled={pinned} />
+              </span>
+            </button>
+          )
+        })}
       </div>
 
       <button

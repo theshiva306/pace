@@ -236,6 +236,14 @@ export async function sendMessage({ groupId, uid, displayName, photoURL, text })
   })
 }
 
+// Pins/unpins the group shown on the Timer page's live pill. Only one
+// group can be pinned at a time — setting a new one silently replaces
+// the old pin. Passing null clears it. Synced via Firebase so it follows
+// the user across devices.
+export async function setPinnedGroup(uid, groupId) {
+  await update(ref(db), { [`users/${uid}/pinnedGroupId`]: groupId })
+}
+
 export async function updateDisplayName({ uid, groupIds, name }) {
   const updates = { [`users/${uid}/displayName`]: name }
   for (const groupId of groupIds) {
