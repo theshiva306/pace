@@ -44,6 +44,7 @@
     "groups": {
       "$groupId": {
         ".read": "auth != null && root.child('groups/' + $groupId + '/members/' + auth.uid).exists()",
+        ".write": "auth != null && root.child('groups/' + $groupId + '/adminUid').val() === auth.uid && newData.exists() == false",
 
         "name": {
           ".write": "auth != null && (!data.exists() ? true : root.child('groups/' + $groupId + '/adminUid').val() === auth.uid)"
@@ -77,7 +78,7 @@
         "weeklyTotals": {
           "$weekId": {
             "$uid": {
-              ".write": "auth != null && auth.uid === $uid && root.child('groups/' + $groupId + '/members/' + $uid).exists() && (!data.exists() || newData.val() >= data.val())",
+              ".write": "auth != null && auth.uid === $uid && root.child('groups/' + $groupId + '/members/' + $uid).exists()",
               ".validate": "newData.isNumber() && newData.val() >= 0"
             }
           }
@@ -86,7 +87,7 @@
         "weeklySessionCounts": {
           "$weekId": {
             "$uid": {
-              ".write": "auth != null && auth.uid === $uid && root.child('groups/' + $groupId + '/members/' + $uid).exists() && (!data.exists() || newData.val() >= data.val())",
+              ".write": "auth != null && auth.uid === $uid && root.child('groups/' + $groupId + '/members/' + $uid).exists()",
               ".validate": "newData.isNumber() && newData.val() >= 0"
             }
           }
@@ -95,7 +96,7 @@
         "dailyTotals": {
           "$dayId": {
             "$uid": {
-              ".write": "auth != null && auth.uid === $uid && root.child('groups/' + $groupId + '/members/' + $uid).exists() && (!data.exists() || newData.val() >= data.val())",
+              ".write": "auth != null && auth.uid === $uid && root.child('groups/' + $groupId + '/members/' + $uid).exists()",
               ".validate": "newData.isNumber() && newData.val() >= 0"
             }
           }
