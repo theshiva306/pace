@@ -31,12 +31,11 @@ function Gate() {
     )
   }
 
-  // Invite links work whether or not the person is signed in yet, so this
-  // route is handled outside the normal login gate.
+  // Invite links work whether or not the person is signed in yet.
   if (location.pathname.startsWith('/join/')) {
     return (
       <Routes>
-        <Route path="/join/:code" element={<JoinLink />} />
+        <Route path="/join/:groupId" element={<JoinLink />} />
       </Routes>
     )
   }
