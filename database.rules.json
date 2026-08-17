@@ -2,68 +2,57 @@
   "rules": {
     ".read": false,
     ".write": false,
-
     "users": {
       "$uid": {
         ".read": "auth != null",
         ".write": "auth != null && auth.uid === $uid"
       }
     },
-
     "userGroups": {
       "$uid": {
         ".read": "auth != null && auth.uid === $uid",
         "$groupId": {
-          ".write": "auth != null && auth.uid === $uid",
+          ".write": "auth != null && (auth.uid === $uid || root.child('groups/' + $groupId + '/adminUid').val() === auth.uid)",
           ".validate": "!newData.exists() || newData.val() === true"
         }
       }
     },
-
     "userStats": {
       "$uid": {
         ".read": "auth != null",
         ".write": "auth != null && auth.uid === $uid"
       }
     },
-
     "activeSessions": {
       "$uid": {
         ".read": "auth != null",
         ".write": "auth != null && auth.uid === $uid"
       }
     },
-
     "completedSessions": {
       "$uid": {
         ".read": "auth != null && auth.uid === $uid",
         ".write": "auth != null && auth.uid === $uid"
       }
     },
-
     "groups": {
       "$groupId": {
         ".read": "auth != null && (root.child('groups/' + $groupId + '/members/' + auth.uid).exists() || data.child('adminUid').val() === auth.uid)",
-        ".write": "auth != null && ((!data.exists() && newData.child('adminUid').val() === auth.uid && newData.child('createdBy').val() === auth.uid && newData.child('members/' + auth.uid).exists()) || (data.exists() && data.child('adminUid').val() === auth.uid && !newData.exists()))",
-
+        ".write": "auth != null && ((data.exists() && data.child('adminUid').val() === auth.uid && !newData.exists()) || (data.exists() && !data.child('members/' + auth.uid).exists() && newData.child('members/' + auth.uid).exists() && newData.child('adminUid').val() === data.child('adminUid').val() && newData.child('createdBy').val() === data.child('createdBy').val() && newData.child('createdAt').val() === data.child('createdAt').val() && newData.child('name').val() === data.child('name').val() && newData.child('members').numChildren() === data.child('members').numChildren() + 1) || (!data.exists() && newData.child('adminUid').val() === auth.uid && newData.child('createdBy').val() === auth.uid && newData.child('members/' + auth.uid).exists()))",
         "name": {
           ".read": "auth != null",
           ".write": "auth != null && root.child('groups/' + $groupId + '/adminUid').val() === auth.uid",
           ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 24"
         },
-
         "createdBy": {
           ".write": "auth != null && !data.exists() && newData.val() === auth.uid"
         },
-
         "createdAt": {
           ".write": "auth != null && !data.exists()"
         },
-
         "adminUid": {
           ".write": "auth != null && ((!data.exists() && newData.val() === auth.uid) || (data.exists() && data.val() === auth.uid))"
         },
-
         "members": {
           ".read": "auth != null && (root.child('groups/' + $groupId + '/members/' + auth.uid).exists() || root.child('groups/' + $groupId + '/adminUid').val() === auth.uid)",
           "$uid": {
@@ -71,7 +60,6 @@
             ".validate": "!newData.exists() || newData.hasChildren(['displayName', 'joinedAt'])"
           }
         },
-
         "messages": {
           "$messageId": {
             ".write": "auth != null && root.child('groups/' + $groupId + '/members/' + auth.uid).exists() && !data.exists() && newData.child('uid').val() === auth.uid",
