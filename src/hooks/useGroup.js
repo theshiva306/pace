@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ref, onValue } from 'firebase/database'
+import { ref, onValue, remove } from 'firebase/database'
 import { db } from '../firebase'
+
+const CHAT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
 
 // Group membership, chat, and display metadata remain group-owned.
 // Study totals and live presence are user-owned. The group subscribes to
@@ -24,9 +26,23 @@ export function useGroup(groupId, weekId, dayId) {
       onValue(ref(db, `groups/${groupId}/adminUid`), (s) =>
         setGroup((g) => ({ ...(g || {}), adminUid: s.val(), inviteCode: groupId }))),
       onValue(ref(db, `groups/${groupId}/members`), (s) => setMembers(s.val() || {})),
-      onValue(ref(db, `groups/${groupId}/messages`), (s) => {
+      onValue(ref(db, `groups/${groupId}/messages`), async (s) => {
         const val = s.val() || {}
-        setMessages(Object.entries(val)
+        const cutoff = Date.now() - CHAT_RETENTION_MS
+        const entries = Object.entries(val)
+        const expiredIds = entries
+          .filter(([, m]) => Number(m?.timestamp) > 0 && Number(m.timestamp) < cutoff)
+          .map(([id]) => id)
+
+        // Realtime Database has no built-in TTL. Every group member opening
+        // the chat performs the same safe cleanup, so messages older than
+        // seven days disappear without requiring a separate backend.
+        if (expiredIds.length) {
+          await Promise.all(expiredIds.map((id) => remove(ref(db, `groups/${groupId}/messages/${id}`)).catch(() => {})))
+        }
+
+        setMessages(entries
+          .filter(([, m]) => !m?.timestamp || Number(m.timestamp) >= cutoff)
           .map(([id, m]) => ({ id, ...m }))
           .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0)))
       }),
