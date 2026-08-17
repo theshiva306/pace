@@ -21,10 +21,8 @@ export function useGroup(groupId, weekId, dayId) {
     const unsubs = [
       onValue(ref(db, `groups/${groupId}/name`), (s) =>
         setGroup((g) => ({ ...(g || {}), name: s.val() }))),
-      onValue(ref(db, `groups/${groupId}/inviteCode`), (s) =>
-        setGroup((g) => ({ ...(g || {}), inviteCode: s.val() }))),
       onValue(ref(db, `groups/${groupId}/adminUid`), (s) =>
-        setGroup((g) => ({ ...(g || {}), adminUid: s.val() }))),
+        setGroup((g) => ({ ...(g || {}), adminUid: s.val(), inviteCode: groupId }))),
       onValue(ref(db, `groups/${groupId}/members`), (s) => setMembers(s.val() || {})),
       onValue(ref(db, `groups/${groupId}/messages`), (s) => {
         const val = s.val() || {}
