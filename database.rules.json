@@ -15,7 +15,7 @@
       "$uid": {
         ".read": "auth != null && auth.uid === $uid",
         "$groupId": {
-          ".write": "auth != null && auth.uid === $uid || (auth != null && root.child('groups/' + $groupId + '/adminUid').val() === auth.uid)",
+          ".write": "auth != null && (auth.uid === $uid || root.child('groups/' + $groupId + '/adminUid').val() === auth.uid)",
           ".validate": "newData.val() === true"
         }
       }
@@ -48,17 +48,27 @@
         ".write": "auth != null && ((!data.exists() && newData.child('adminUid').val() === auth.uid && newData.child('createdBy').val() === auth.uid && newData.child('members/' + auth.uid).exists()) || (data.exists() && data.child('adminUid').val() === auth.uid && !newData.exists()))",
 
         "name": {
+          ".read": "auth != null",
           ".write": "auth != null && root.child('groups/' + $groupId + '/adminUid').val() === auth.uid",
           ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 24"
         },
+
         "createdBy": {
           ".write": "auth != null && !data.exists() && newData.val() === auth.uid"
         },
+
         "createdAt": {
           ".write": "auth != null && !data.exists()"
         },
+
         "adminUid": {
           ".write": "auth != null && (!data.exists() ? newData.val() === auth.uid : data.val() === auth.uid && (newData.exists() == false || root.child('groups/' + $groupId + '/members/' + newData.val()).exists()))"
+        },
+
+        "memberCount": {
+          ".read": "auth != null",
+          ".write": "auth != null && ((!data.exists() && newData.val() === 1 && root.child('groups/' + $groupId + '/adminUid').val() === auth.uid) || (data.exists() && (root.child('groups/' + $groupId + '/adminUid').val() === auth.uid || newData.val() === data.val() + 1 || newData.val() === data.val() - 1)) )",
+          ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 6"
         },
 
         "members": {
