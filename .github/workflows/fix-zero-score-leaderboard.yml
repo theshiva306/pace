@@ -1,0 +1,41 @@
+name: Fix zero-score leaderboard
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Patch leaderboard zero-score display
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('src/pages/GroupDetail.jsx')
+          s = p.read_text()
+          old = "const RANK_COLOR = ['text-league-gold', 'text-league-silver', 'text-league-bronze']\nfunction Leaderboard({ memberList, totals, currentUid, week, onOpenWeekPicker, onSelectMember }) { const ranked = [...memberList].map((m) => ({ ...m, seconds: totals[m.uid] || 0 })).sort((a, b) => b.seconds - a.seconds); const mine = (totals[currentUid] || 0) > 0 ? leagueStatus(ranked, currentUid, { final: !week.isCurrent }) : null; return <div className=\"animate-fade-in\"><div className=\"flex items-center justify-between mb-4 gap-3\"><button onClick={onOpenWeekPicker} className=\"flex items-center gap-1.5 text-left\"><div><div className=\"text-sm font-semibold tracking-tight\">{week.label}</div><div className=\"text-[11px] text-text-faint\">{week.isCurrent ? `Ends in ${week.daysLeft} day${week.daysLeft === 1 ? '' : 's'}` : 'Session ended'}</div></div><ChevronDown className=\"text-text-faint mt-2.5\" /></button>{mine && <div className=\"flex items-center gap-2 shrink-0\"><LeagueIcon className={mine.textClass} /><div className=\"text-right\"><div className={`text-xs font-semibold tracking-wide ${mine.textClass}`}>{mine.name} league</div><div className=\"text-[11px] text-text-faint\">{mine.detail}</div></div></div>}</div><RefreshRow label=\"STANDINGS\" /><div className=\"flex flex-col\">{ranked.map((m, i) => <button key={m.uid} onClick={() => onSelectMember(m.uid)} className={`flex items-center gap-4 py-3 border-b border-border-soft last:border-0 text-left ${m.uid === currentUid ? 'bg-accent-soft/40 -mx-3 px-3 rounded-xl' : ''}`}><span className=\"w-7 flex items-center justify-center text-sm text-text-faint tabular-nums\">{m.seconds === 0 ? '—' : i < 3 ? <LeagueIcon width=\"18\" height=\"18\" className={RANK_COLOR[i]} /> : i + 1}</span><Avatar name={m.displayName} photoURL={m.photoURL} size=\"sm\" /><span className=\"flex-1 text-sm font-medium truncate\">{m.displayName}</span><span className=\"text-sm tabular-nums text-text-dim\">{formatDuration(m.seconds)}</span></button>)}</div></div> }"
+          new = "const RANK_COLOR = ['text-league-gold', 'text-league-silver', 'text-league-bronze']\nfunction getLeaderboardRankDisplay(seconds, index) {\n  if (seconds <= 0) return '—'\n  if (index < 3) return <LeagueIcon width=\"18\" height=\"18\" className={RANK_COLOR[index]} />\n  return index + 1\n}\nfunction Leaderboard({ memberList, totals, currentUid, week, onOpenWeekPicker, onSelectMember }) { const ranked = [...memberList].map((m) => ({ ...m, seconds: totals[m.uid] || 0 })).sort((a, b) => b.seconds - a.seconds); const currentSeconds = totals[currentUid] || 0; const mine = currentSeconds > 0 ? leagueStatus(ranked, currentUid, { final: !week.isCurrent }) : null; return <div className=\"animate-fade-in\"><div className=\"flex items-center justify-between mb-4 gap-3\"><button onClick={onOpenWeekPicker} className=\"flex items-center gap-1.5 text-left\"><div><div className=\"text-sm font-semibold tracking-tight\">{week.label}</div><div className=\"text-[11px] text-text-faint\">{week.isCurrent ? `Ends in ${week.daysLeft} day${week.daysLeft === 1 ? '' : 's'}` : 'Session ended'}</div></div><ChevronDown className=\"text-text-faint mt-2.5\" /></button>{mine && <div className=\"flex items-center gap-2 shrink-0\"><LeagueIcon className={mine.textClass} /><div className=\"text-right\"><div className={`text-xs font-semibold tracking-wide ${mine.textClass}`}>{mine.name} league</div><div className=\"text-[11px] text-text-faint\">{mine.detail}</div></div></div>}</div><RefreshRow label=\"STANDINGS\" /><div className=\"flex flex-col\">{ranked.map((m, i) => <button key={m.uid} onClick={() => onSelectMember(m.uid)} className={`flex items-center gap-4 py-3 border-b border-border-soft last:border-0 text-left ${m.uid === currentUid ? 'bg-accent-soft/40 -mx-3 px-3 rounded-xl' : ''}`}><span className=\"w-7 flex items-center justify-center text-sm text-text-faint tabular-nums\">{getLeaderboardRankDisplay(m.seconds, i)}</span><Avatar name={m.displayName} photoURL={m.photoURL} size=\"sm\" /><span className=\"flex-1 text-sm font-medium truncate\">{m.displayName}</span><span className=\"text-sm tabular-nums text-text-dim\">{formatDuration(m.seconds)}</span></button>)}</div></div> }"
+          if old not in s:
+              raise SystemExit('Expected leaderboard block not found; refusing to modify file.')
+          p.write_text(s.replace(old, new))
+          PY
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/pages/GroupDetail.jsx
+          git commit -m "Fix zero-score standings display"
+          git push
+
+      - name: Remove temporary workflow
+        if: success()
+        run: |
+          git rm .github/workflows/fix-zero-score-leaderboard.yml
+          git commit -m "Remove temporary zero-score fix workflow"
+          git push
