@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState } from 'react'
 import { onAuthStateChanged, signInWithPopup, signOut } from 'firebase/auth'
 import { ref, onValue, set, serverTimestamp, get } from 'firebase/database'
 import { auth, db, googleProvider } from '../firebase'
+import { ensureUserStats } from '../lib/userStats'
 
 const AuthContext = createContext(null)
 
@@ -29,6 +30,9 @@ export function AuthProvider({ children }) {
           createdAt: serverTimestamp(),
         })
       }
+      // Backfill the user-owned source of truth from existing completed
+      // sessions. This is what makes old history survive group deletion.
+      try { await ensureUserStats(fbUser.uid) } catch (err) { console.error('Unable to backfill study stats', err) }
     })
     return unsub
   }, [])
