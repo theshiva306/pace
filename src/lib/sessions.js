@@ -70,40 +70,29 @@ export async function deleteSession({ uid, sessionId }) {
   await ensureUserStats(uid)
 }
 
-function randomInviteCode() {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-  let code = ''
-  for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)]
-  return code
-}
-
 export async function createGroup({ uid, displayName, photoURL, name }) {
   const groupRef = push(ref(db, 'groups'))
   const groupId = groupRef.key
-  let code = randomInviteCode()
-  for (let i = 0; i < 5; i++) { const existing = await get(ref(db, `inviteCodes/${code}`)); if (!existing.exists()) break; code = randomInviteCode() }
   await update(ref(db), {
     [`groups/${groupId}/name`]: name,
-    [`groups/${groupId}/inviteCode`]: code,
     [`groups/${groupId}/createdBy`]: uid,
     [`groups/${groupId}/createdAt`]: serverTimestamp(),
     [`groups/${groupId}/adminUid`]: uid,
     [`groups/${groupId}/members/${uid}`]: { displayName, photoURL: photoURL ?? null, joinedAt: serverTimestamp() },
-    [`inviteCodes/${code}`]: groupId,
     [`userGroups/${uid}/${groupId}`]: true,
   })
   return groupId
 }
 
-export async function joinGroupByCode({ uid, displayName, photoURL, code }) {
-  const cleanCode = code.trim().toUpperCase()
-  const codeSnap = await get(ref(db, `inviteCodes/${cleanCode}`))
-  if (!codeSnap.exists()) return { error: 'invalid' }
-  const groupId = codeSnap.val()
-  const membersSnap = await get(ref(db, `groups/${groupId}/members`))
-  const members = membersSnap.val() || {}
+export async function joinGroupByLink({ uid, displayName, photoURL, groupId }) {
+  const groupSnap = await get(ref(db, `groups/${groupId}`))
+  if (!groupSnap.exists()) return { error: 'invalid' }
+
+  const group = groupSnap.val() || {}
+  const members = group.members || {}
   if (members[uid]) return { groupId }
   if (Object.keys(members).length >= MAX_GROUP_SIZE) return { error: 'full' }
+
   await update(ref(db), {
     [`groups/${groupId}/members/${uid}`]: { displayName, photoURL: photoURL ?? null, joinedAt: serverTimestamp() },
     [`userGroups/${uid}/${groupId}`]: true,
@@ -118,7 +107,6 @@ export async function deleteGroup({ groupId, memberUids }) {
   const group = groupSnap.val() || {}
   const updates = { [`groups/${groupId}`]: null }
   for (const uid of memberUids) updates[`userGroups/${uid}/${groupId}`] = null
-  if (group.inviteCode) updates[`inviteCodes/${group.inviteCode}`] = null
   await update(ref(db), updates)
 }
 
