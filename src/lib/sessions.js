@@ -8,7 +8,6 @@ import { ensureUserStats } from './userStats'
 
 export const MAX_GROUP_SIZE = 6
 
-// ---- Active session (single source of truth: /activeSessions/{uid}) ----
 export async function getActiveSession(uid) {
   const snap = await get(ref(db, `activeSessions/${uid}`))
   return snap.exists() ? snap.val() : null
@@ -50,8 +49,6 @@ export async function clearActiveSession(uid, _groupIds) {
   await remove(ref(db, `activeSessions/${uid}`))
 }
 
-// Durable source of truth: completedSessions + userStats. Groups never own
-// copies of study totals, so deleting/recreating a group cannot erase history.
 export async function saveSession({ uid, session, durationSeconds }) {
   const weekId = isoWeekId()
   const todayId = dayId()
@@ -73,7 +70,6 @@ export async function deleteSession({ uid, sessionId }) {
   await ensureUserStats(uid)
 }
 
-// ---- Groups ----
 function randomInviteCode() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
   let code = ''
@@ -122,7 +118,7 @@ export async function deleteGroup({ groupId, memberUids }) {
   const group = groupSnap.val() || {}
   const updates = { [`groups/${groupId}`]: null }
   for (const uid of memberUids) updates[`userGroups/${uid}/${groupId}`] = null
-  if (group.inviteCode) updates[`inviteCodes/${group.inviteCode`] = null
+  if (group.inviteCode) updates[`inviteCodes/${group.inviteCode}`] = null
   await update(ref(db), updates)
 }
 
