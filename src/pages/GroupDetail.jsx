@@ -104,9 +104,12 @@ function Leaderboard({ memberList, totals, currentUid, week, onOpenWeekPicker, o
 export function Live({ memberList, live, totals, currentUid, onSelectMember }) { const liveMembers = memberList.filter((m) => { const status = live[m.uid]?.status; return status === 'active' || status === 'paused' || status === 'onBreak' }); const idleMembers = memberList.filter((m) => !liveMembers.some((x) => x.uid === m.uid)); return <div className="animate-fade-in"><RefreshRow label="TODAY" />{liveMembers.length === 0 ? <p className="text-text-dim text-sm py-6">No one studying</p> : <div className="grid grid-cols-3 gap-3 mb-8">{liveMembers.map((m) => { const status = live[m.uid]?.status; const paused = status === 'paused' || status === 'onBreak'; return <LiveTile key={m.uid} member={m} seconds={totals[m.uid] || 0} self={m.uid === currentUid} paused={paused} status={status} onClick={() => onSelectMember(m.uid)} /> })}</div>}{idleMembers.length > 0 && <><div className="text-[13px] tracking-[0.25em] text-text-faint mb-3">NOT FOCUSING</div><div className="flex flex-col gap-3">{idleMembers.map((m) => <button key={m.uid} onClick={() => onSelectMember(m.uid)} className="flex items-center gap-3 text-left w-full"><Avatar name={m.displayName} photoURL={m.photoURL} size="sm" /><span className="text-sm text-text-dim flex-1 truncate">{m.uid === currentUid ? 'You' : m.displayName}</span><span className="text-xs tabular-nums text-text-faint">{formatDuration(totals[m.uid] || 0)}</span></button>)}</div></>}</div> }
 function LiveTile({ member, seconds, self, paused, status, onClick }) { const label = paused ? (status === 'onBreak' ? 'BREAK' : 'PAUSED') : 'STUDYING'; return <button onClick={onClick} className={`flex flex-col items-center gap-2 bg-surface border border-border rounded-2xl py-4 ${paused ? 'opacity-55' : ''}`}><Avatar name={member.displayName} photoURL={member.photoURL} size="md" live={!paused} /><span className="text-xs font-medium truncate max-w-full px-1">{self ? 'You' : member.displayName}</span><span className={`text-[10px] tracking-wide ${paused ? 'text-text-faint' : 'text-live'}`}>{label}</span><span className={`text-xs tabular-nums ${paused ? 'text-text-faint' : 'text-live'}`}>{formatDuration(seconds)}</span></button> }
 
+const CHAT_EMOJIS = ['😀','😂','🤣','😊','😍','🥳','😎','😭','😅','😮','😡','❤️','🔥','👍','👏','🙏','💯','✨','🎯','💪','📚','⏱️','🚀','😴','🤝','🙌','💀','🤔','👀','😇','❤️‍🔥','⭐']
+
 function Chat({ groupId, messages, user, profile }) {
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
+  const [emojiOpen, setEmojiOpen] = useState(false)
   const bottomRef = useRef(null)
   const inputRef = useRef(null)
 
@@ -133,9 +136,23 @@ function Chat({ groupId, messages, user, profile }) {
     }
   }
 
+  function insertEmoji(emoji) {
+    const input = inputRef.current
+    if (!input) return
+    const start = input.selectionStart ?? text.length
+    const end = input.selectionEnd ?? text.length
+    const next = (text.slice(0, start) + emoji + text.slice(end)).slice(0, 500)
+    setText(next)
+    requestAnimationFrame(() => {
+      input.focus({ preventScroll: true })
+      const pos = Math.min(start + emoji.length, 500)
+      input.setSelectionRange(pos, pos)
+    })
+  }
+
   return (
-    <div className="flex flex-col flex-1 min-h-0 -mx-1 animate-fade-in">
-      <div className="flex-1 min-h-[220px] max-h-[calc(100svh-300px)] overflow-y-auto overscroll-contain no-scrollbar pr-1 pb-3 space-y-1">
+    <div className="relative flex flex-col flex-1 min-h-0 -mx-1 animate-fade-in">
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain no-scrollbar pr-0 pb-2 space-y-1">
         {messages.length === 0 && (
           <div className="flex h-full min-h-[220px] items-center justify-center text-sm text-text-faint">
             No messages yet
@@ -170,10 +187,34 @@ function Chat({ groupId, messages, user, profile }) {
         <div ref={bottomRef} className="h-px" />
       </div>
 
+      {emojiOpen && (
+        <div className="absolute bottom-[calc(env(safe-area-inset-bottom)+68px)] left-0 right-0 z-20 rounded-2xl border border-border bg-surface/98 p-2 shadow-2xl backdrop-blur-md">
+          <div className="grid grid-cols-8 sm:grid-cols-10 gap-0.5 max-h-48 overflow-y-auto no-scrollbar">
+            {CHAT_EMOJIS.map((emoji) => (
+              <button
+                key={emoji}
+                type="button"
+                onPointerDown={(e) => e.preventDefault()}
+                onClick={() => insertEmoji(emoji)}
+                className="h-10 rounded-xl text-xl flex items-center justify-center hover:bg-elevated active:scale-90 transition-transform"
+                aria-label={`Insert ${emoji}`}
+              >{emoji}</button>
+            ))}
+          </div>
+        </div>
+      )}
       <form
         onSubmit={(e) => { e.preventDefault(); handleSend() }}
-        className="sticky bottom-0 z-10 flex items-center gap-2 border-t border-border-soft bg-bg/95 pt-3 pb-[calc(env(safe-area-inset-bottom)+8px)] backdrop-blur-md"
+        className="sticky bottom-0 z-10 flex items-center gap-2 border-t border-border-soft bg-bg/95 pt-2 pb-[calc(env(safe-area-inset-bottom)+8px)] backdrop-blur-md"
       >
+        <button
+          type="button"
+          onPointerDown={(e) => e.preventDefault()}
+          onClick={() => { setEmojiOpen((open) => !open); requestAnimationFrame(() => inputRef.current?.focus({ preventScroll: true })) }}
+          aria-label="Emoji"
+          aria-expanded={emojiOpen}
+          className="w-11 h-11 rounded-2xl bg-surface border border-border text-text-dim flex items-center justify-center shrink-0 text-xl active:scale-95 transition-transform"
+        >😊</button>
         <input
           ref={inputRef}
           value={text}
