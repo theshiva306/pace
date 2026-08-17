@@ -207,70 +207,68 @@ export default function Timer() {
       : clock.focusElapsed
 
   return (
-    <div className="min-h-svh flex flex-col items-center justify-center px-6 py-8">
-      <PinnedGroupPill
-        summary={pinnedSummary}
-        onOpen={() => navigate(`/groups/${pinnedGroupId}`, { state: { tab: 'Live' } })}
-        onPinSomething={() => navigate('/groups')}
-      />
+    <div className="h-svh flex flex-col items-center px-6 pt-[calc(env(safe-area-inset-top)+18px)] pb-[calc(env(safe-area-inset-bottom)+104px)] md:pb-14">
+      {/* Fixed top row — always the first thing on the page, regardless of
+          which state (idle/break/focusing) fills the space below it. */}
+      <div className="w-full flex justify-center shrink-0">
+        <PinnedGroupPill
+          summary={pinnedSummary}
+          onOpen={() => navigate(`/groups/${pinnedGroupId}`, { state: { tab: 'Live' } })}
+          onPinSomething={() => navigate('/groups')}
+        />
+      </div>
 
-      {!session && (
-        <div className="flex flex-col items-center w-full">
-          <RingTimer label="READY" displaySeconds={0} totalSeconds={null} isPaused={false} />
-          <button
-            onClick={() => setSetupOpen(true)}
-            className="text-xs text-text-faint mt-8 mb-8 underline decoration-dotted underline-offset-4"
-          >
-            {summaryText}
-          </button>
-          <button
-            onClick={handleMainCta}
-            disabled={busy}
-            className="w-full max-w-xs bg-accent text-bg font-medium text-sm tracking-[0.1em] uppercase rounded-2xl py-4 shadow-[0_0_0_8px_var(--color-accent-soft)] active:scale-[0.98] transition-transform disabled:opacity-40"
-          >
-            Start Focus Now
-          </button>
-        </div>
-      )}
+      {/* Everything else centers inside whatever vertical space is left,
+          so it can never collide with the top row or get pushed under
+          the bottom nav — and never needs to scroll. */}
+      <div className="flex-1 min-h-0 w-full flex flex-col items-center justify-center gap-9">
+        {!session && (
+          <div className="flex flex-col items-center w-full">
+            <RingTimer label="READY" displaySeconds={0} totalSeconds={null} isPaused={false} />
+            <button
+              onClick={() => setSetupOpen(true)}
+              className="text-xs text-text-faint mt-7 mb-7 underline decoration-dotted underline-offset-4"
+            >
+              {summaryText}
+            </button>
+            <button
+              onClick={handleMainCta}
+              disabled={busy}
+              className="w-full max-w-xs bg-accent text-bg font-medium text-sm tracking-[0.1em] uppercase rounded-2xl py-4 shadow-[0_0_0_8px_var(--color-accent-soft)] active:scale-[0.98] transition-transform disabled:opacity-40"
+            >
+              Start Focus Now
+            </button>
+          </div>
+        )}
 
-      {session && clock.isOnBreak && (
-        <div className="flex flex-col items-center w-full">
+        {session && clock.isOnBreak && (
           <RingTimer
             label="BREAK"
             displaySeconds={clock.breakRemaining}
             totalSeconds={session.breakDurationSeconds || null}
             isPaused={false}
             accent
-          />
-          <div className="mt-10 w-full max-w-xs">
-            <Button variant="ghost" className="w-full" onClick={handleEndBreak} disabled={busy}>
-              End break
-            </Button>
-          </div>
-        </div>
-      )}
+          >
+            <RingLink onClick={handleEndBreak} disabled={busy}>End break</RingLink>
+          </RingTimer>
+        )}
 
-      {session && !clock.isOnBreak && (
-        <div className="flex flex-col items-center w-full">
-          <RingTimer
-            label={clock.isPaused ? 'PAUSED' : 'FOCUSING'}
-            displaySeconds={displaySeconds}
-            totalSeconds={session.mode === 'countdown' ? session.targetSeconds : null}
-            isPaused={clock.isPaused}
-          />
+        {session && !clock.isOnBreak && (
+          <div className="flex flex-col items-center w-full">
+            <RingTimer
+              label={clock.isPaused ? 'PAUSED' : 'FOCUSING'}
+              displaySeconds={displaySeconds}
+              totalSeconds={session.mode === 'countdown' ? session.targetSeconds : null}
+              isPaused={clock.isPaused}
+            >
+              {session.breaksAllowed > 0 && (
+                <RingLink onClick={() => setBreakInfoOpen(true)} disabled={busy || breaksLeft <= 0}>
+                  Take a break
+                </RingLink>
+              )}
+            </RingTimer>
 
-          <div className="mt-10 flex flex-col items-center gap-3 w-full max-w-xs">
-            {session.breaksAllowed > 0 && (
-              <Button
-                variant="ghost"
-                className="w-full"
-                onClick={() => setBreakInfoOpen(true)}
-                disabled={busy || breaksLeft <= 0}
-              >
-                Take a break
-              </Button>
-            )}
-            <div className="flex gap-3 w-full">
+            <div className="flex gap-3 w-full max-w-xs mt-8">
               <Button variant="ghost" className="flex-1" onClick={() => setStopConfirmOpen(true)}>
                 Stop focusing
               </Button>
@@ -279,8 +277,8 @@ export default function Timer() {
               </Button>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Setup sheet: choose Stopwatch/Timer, duration, breaks */}
       <Sheet open={setupOpen} onClose={() => setSetupOpen(false)}>
@@ -425,10 +423,12 @@ function PinnedGroupPill({ summary, onOpen, onPinSomething }) {
 // (countdown session, or a break with a fixed duration) the ring's arc
 // fills to show real progress. When it's null (stopwatch, or no session
 // yet) the ring stays a static outline — a frame, not a fake progress bar.
-// Sized as a ratio of the viewport so it's the dominant thing on the page
-// on any screen, while the digit size is tied to the ring's own width
-// (not the viewport) so it can never crowd or spill past the ring edge.
-function RingTimer({ label, displaySeconds, totalSeconds, isPaused, accent }) {
+// Sized against the smaller of the viewport's width and height (via CSS
+// min()), capped in px, so it's always prominent but can never force the
+// page to scroll — on a short desktop window it shrinks with the height,
+// not just the width. `children`, if given, renders as a small tappable
+// link inside the ring, under the digits (e.g. "Take a break").
+function RingTimer({ label, displaySeconds, totalSeconds, isPaused, accent, children }) {
   const hasTotal = totalSeconds != null && totalSeconds > 0
   const pct = hasTotal ? Math.min(1, Math.max(0, displaySeconds / totalSeconds)) : 0
   const r = 46
@@ -444,7 +444,10 @@ function RingTimer({ label, displaySeconds, totalSeconds, isPaused, accent }) {
   const timeColor = isPaused ? 'text-text-faint' : accent || hasTotal ? 'text-accent' : 'text-text'
 
   return (
-    <div className="relative w-[86vw] max-w-[420px] md:w-[46vw] md:max-w-[460px] aspect-square flex items-center justify-center shrink-0">
+    <div
+      className="relative flex items-center justify-center shrink-0"
+      style={{ width: 'min(62vw, 52svh, 300px)', aspectRatio: '1' }}
+    >
       <svg viewBox="0 0 100 100" className="absolute inset-0 w-full h-full -rotate-90 overflow-visible">
         <circle cx="50" cy="50" r={r} fill="none" stroke="var(--color-border-soft)" strokeWidth="3" />
         <circle
@@ -456,18 +459,34 @@ function RingTimer({ label, displaySeconds, totalSeconds, isPaused, accent }) {
           className="transition-[stroke-dasharray] duration-500 ease-linear"
         />
       </svg>
-      <div className="flex flex-col items-center justify-center w-[72%] px-1">
-        <div className="text-[12px] tracking-[0.28em] text-text-faint mb-2.5 whitespace-nowrap">
+      <div className="flex flex-col items-center justify-center w-[74%] px-1">
+        <div className="text-[11px] tracking-[0.28em] text-text-faint mb-2 whitespace-nowrap">
           {label}
         </div>
         <div
           className={`font-display font-semibold tabular-nums leading-none select-none whitespace-nowrap ${timeColor}`}
-          style={{ fontSize: 'clamp(2.1rem, 9vw, 3.6rem)' }}
+          style={{ fontSize: 'clamp(1.9rem, 7.5vw, 2.9rem)' }}
         >
           {formatClock(displaySeconds)}
         </div>
+        {children && <div className="mt-4">{children}</div>}
       </div>
     </div>
+  )
+}
+
+// A quiet, text-only action that lives inside the ring (e.g. "Take a
+// break" / "End break"). Underlined so it always reads as tappable;
+// brightens on hover so a mouse user gets a clear affordance too.
+function RingLink({ onClick, disabled, children }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className="text-[13px] font-medium text-text-dim underline decoration-dotted underline-offset-4 hover:text-accent transition-colors disabled:opacity-30 disabled:pointer-events-none"
+    >
+      {children}
+    </button>
   )
 }
 

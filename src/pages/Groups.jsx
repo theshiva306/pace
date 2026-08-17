@@ -93,7 +93,7 @@ export default function Groups() {
                   pinned ? 'text-accent' : 'text-text-faint hover:text-text-dim'
                 }`}
               >
-                <PinIcon filled={pinned} />
+                <PinIcon />
               </span>
             </button>
           )
