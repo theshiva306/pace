@@ -19,6 +19,15 @@
   --color-live-soft: #123024;
   --color-danger: #e5484d;
   --color-danger-soft: #2e1516;
+
+  --color-league-gold: #d4a24c;
+  --color-league-gold-soft: #2a2114;
+  --color-league-silver: #b7c0cc;
+  --color-league-silver-soft: #1c2024;
+  --color-league-bronze: #c17d47;
+  --color-league-bronze-soft: #291c11;
+  --color-league-none: #6b6f78;
+  --color-league-none-soft: #1a1b1e;
 }
 
 @layer base {

@@ -15,7 +15,7 @@
       "$uid": {
         ".read": "auth != null && auth.uid === $uid",
         "$groupId": {
-          ".write": "auth != null && auth.uid === $uid && root.child('groups/' + $groupId + '/members/' + $uid).exists()"
+          ".write": "auth != null && (auth.uid === $uid || root.child('groups/' + $groupId + '/adminUid').val() === auth.uid) && (newData.exists() == false || root.child('groups/' + $groupId + '/members/' + $uid).exists())"
         }
       }
     },
@@ -23,7 +23,7 @@
     "inviteCodes": {
       "$code": {
         ".read": "auth != null",
-        ".write": "auth != null && (!data.exists() || data.val() === newData.val())"
+        ".write": "auth != null && (!data.exists() || data.val() === newData.val() || (newData.exists() == false && root.child('groups/' + data.val() + '/adminUid').val() === auth.uid))"
       }
     },
 
@@ -46,7 +46,7 @@
         ".read": "auth != null && root.child('groups/' + $groupId + '/members/' + auth.uid).exists()",
 
         "name": {
-          ".write": "auth != null && (!root.child('groups/' + $groupId + '/name').exists() ? true : root.child('groups/' + $groupId + '/members/' + auth.uid).exists())"
+          ".write": "auth != null && (!data.exists() ? true : root.child('groups/' + $groupId + '/adminUid').val() === auth.uid)"
         },
         "inviteCode": {
           ".write": "auth != null && !data.exists()"
@@ -57,22 +57,43 @@
         "createdAt": {
           ".write": "auth != null && !data.exists()"
         },
+        "adminUid": {
+          ".write": "auth != null && (!data.exists() ? newData.val() === auth.uid : data.val() === auth.uid && (newData.exists() == false || root.child('groups/' + $groupId + '/members/' + newData.val()).exists()))"
+        },
 
         "members": {
           ".read": "auth != null",
           "$uid": {
-            ".write": "auth != null && auth.uid === $uid"
+            ".write": "auth != null && (auth.uid === $uid || root.child('groups/' + $groupId + '/adminUid').val() === auth.uid)"
           }
         },
 
         "live": {
           "$uid": {
-            ".write": "auth != null && auth.uid === $uid && root.child('groups/' + $groupId + '/members/' + $uid).exists()"
+            ".write": "auth != null && (auth.uid === $uid || root.child('groups/' + $groupId + '/adminUid').val() === auth.uid) && (newData.exists() == false || root.child('groups/' + $groupId + '/members/' + $uid).exists())"
           }
         },
 
         "weeklyTotals": {
           "$weekId": {
+            "$uid": {
+              ".write": "auth != null && auth.uid === $uid && root.child('groups/' + $groupId + '/members/' + $uid).exists() && (!data.exists() || newData.val() >= data.val())",
+              ".validate": "newData.isNumber() && newData.val() >= 0"
+            }
+          }
+        },
+
+        "weeklySessionCounts": {
+          "$weekId": {
+            "$uid": {
+              ".write": "auth != null && auth.uid === $uid && root.child('groups/' + $groupId + '/members/' + $uid).exists() && (!data.exists() || newData.val() >= data.val())",
+              ".validate": "newData.isNumber() && newData.val() >= 0"
+            }
+          }
+        },
+
+        "dailyTotals": {
+          "$dayId": {
             "$uid": {
               ".write": "auth != null && auth.uid === $uid && root.child('groups/' + $groupId + '/members/' + $uid).exists() && (!data.exists() || newData.val() >= data.val())",
               ".validate": "newData.isNumber() && newData.val() >= 0"

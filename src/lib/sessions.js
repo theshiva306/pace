@@ -3,6 +3,7 @@ import {
 } from 'firebase/database'
 import { db } from '../firebase'
 import { isoWeekId } from './week'
+import { dayId } from './day'
 
 // Default max members per group. Change here to adjust everywhere.
 export const MAX_GROUP_SIZE = 6
@@ -135,6 +136,7 @@ export async function clearActiveSession(uid, groupIds) {
 // the timer stuck.
 export async function saveSession({ uid, groupId, groupIds, session, durationSeconds }) {
   const weekId = isoWeekId()
+  const todayId = dayId()
   try {
     const completedRef = ref(db, `completedSessions/${uid}/${session.sessionId}`)
     const already = await get(completedRef)
@@ -145,10 +147,23 @@ export async function saveSession({ uid, groupId, groupIds, session, durationSec
         endedAt: serverTimestamp(),
         durationSeconds,
         weekId,
+        dayId: todayId,
       })
       if (groupId) {
         await runTransaction(
           ref(db, `groups/${groupId}/weeklyTotals/${weekId}/${uid}`),
+          (current) => (current ?? 0) + durationSeconds,
+        )
+        // Session count alongside the weekly total, so the leaderboard can
+        // show "avg focus per session" without re-scanning completedSessions.
+        await runTransaction(
+          ref(db, `groups/${groupId}/weeklySessionCounts/${weekId}/${uid}`),
+          (current) => (current ?? 0) + 1,
+        )
+        // Today's total, shown on the group's Live tab — separate from the
+        // weekly leaderboard total above.
+        await runTransaction(
+          ref(db, `groups/${groupId}/dailyTotals/${todayId}/${uid}`),
           (current) => (current ?? 0) + durationSeconds,
         )
       }
@@ -191,6 +206,7 @@ export async function createGroup({ uid, displayName, photoURL, name }) {
     [`groups/${groupId}/inviteCode`]: code,
     [`groups/${groupId}/createdBy`]: uid,
     [`groups/${groupId}/createdAt`]: serverTimestamp(),
+    [`groups/${groupId}/adminUid`]: uid,
     [`groups/${groupId}/members/${uid}`]: { displayName, photoURL: photoURL ?? null, joinedAt: serverTimestamp() },
     [`inviteCodes/${code}`]: groupId,
   })
@@ -223,6 +239,76 @@ export async function joinGroupByCode({ uid, displayName, photoURL, code }) {
   })
 
   return { groupId }
+}
+
+// ---- Group settings (admin-managed rename/remove/leave/delete) ----
+
+// Renames a group. Enforced admin-only by the database rules (see
+// database.rules.json), so no client-side gate is needed beyond hiding
+// the control for non-admins in the UI.
+export async function renameGroup({ groupId, name }) {
+  await update(ref(db), { [`groups/${groupId}/name`]: name })
+}
+
+export async function deleteGroup({ groupId, memberUids }) {
+  const groupSnap = await get(ref(db, `groups/${groupId}`))
+  const group = groupSnap.val() || {}
+
+  // Two steps, in this order: everything that checks "am I the admin?"
+  // has to run while adminUid is still set, so it's cleared last, on its
+  // own, once nothing else depends on it.
+  const updates = { [`groups/${groupId}/name`]: null }
+  for (const uid of memberUids) {
+    updates[`groups/${groupId}/members/${uid}`] = null
+    updates[`groups/${groupId}/live/${uid}`] = null
+    updates[`userGroups/${uid}/${groupId}`] = null
+  }
+  if (group.inviteCode) {
+    updates[`inviteCodes/${group.inviteCode}`] = null
+  }
+  await update(ref(db), updates)
+  await update(ref(db), { [`groups/${groupId}/adminUid`]: null })
+}
+
+// Admin-only removal of another member. The member themselves leaving
+// uses leaveGroup below instead.
+export async function removeMember({ groupId, targetUid }) {
+  await update(ref(db), {
+    [`groups/${groupId}/members/${targetUid}`]: null,
+    [`groups/${groupId}/live/${targetUid}`]: null,
+    [`userGroups/${targetUid}/${groupId}`]: null,
+  })
+}
+
+// A member leaving of their own accord. If they're the admin and other
+// members remain, the longest-standing other member is promoted first so
+// the group is never left without one. If they're the last member, the
+// group is deleted outright rather than left empty and admin-less.
+export async function leaveGroup({ uid, groupId }) {
+  const [groupSnap, membersSnap] = await Promise.all([
+    get(ref(db, `groups/${groupId}`)),
+    get(ref(db, `groups/${groupId}/members`)),
+  ])
+  const group = groupSnap.val() || {}
+  const members = membersSnap.val() || {}
+  const others = Object.entries(members).filter(([mUid]) => mUid !== uid)
+
+  if (group.adminUid === uid && others.length === 0) {
+    return deleteGroup({ groupId, memberUids: Object.keys(members) })
+  }
+
+  const updates = {
+    [`groups/${groupId}/members/${uid}`]: null,
+    [`groups/${groupId}/live/${uid}`]: null,
+    [`userGroups/${uid}/${groupId}`]: null,
+  }
+
+  if (group.adminUid === uid && others.length > 0) {
+    const [nextAdminUid] = others.sort((a, b) => (a[1].joinedAt || 0) - (b[1].joinedAt || 0))[0]
+    updates[`groups/${groupId}/adminUid`] = nextAdminUid
+  }
+
+  await update(ref(db), updates)
 }
 
 export async function sendMessage({ groupId, uid, displayName, photoURL, text }) {

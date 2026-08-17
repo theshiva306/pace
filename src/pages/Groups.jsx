@@ -5,6 +5,7 @@ import { useMyGroups } from '../hooks/useMyGroups'
 import { createGroup, setPinnedGroup } from '../lib/sessions'
 import Sheet from '../components/Sheet'
 import Button from '../components/Button'
+import GroupIcon from '../components/GroupIcon'
 import { PlusIcon, PinIcon } from '../components/icons'
 
 // Joining is link-only now (see JoinLink.jsx / the Invite button inside a
@@ -71,19 +72,22 @@ export default function Groups() {
             <button
               key={g.id}
               onClick={() => navigate(`/groups/${g.id}`)}
-              className="relative text-left bg-surface border border-border rounded-2xl pl-5 pr-14 py-4 hover:border-text-faint transition-colors animate-rise"
+              className="relative flex items-center gap-3.5 text-left bg-surface border border-border rounded-2xl pl-5 pr-14 py-4 hover:border-text-faint transition-colors animate-rise"
             >
-              <div className="font-display font-semibold tracking-tight uppercase text-sm mb-1">
-                {g.name || '—'}
-              </div>
-              <div className="flex items-center gap-3 text-xs text-text-faint">
-                <span>{g.memberCount ?? 0} members</span>
-                {g.liveCount > 0 && (
-                  <span className="flex items-center gap-1.5 text-live">
-                    <span className="w-1.5 h-1.5 rounded-full bg-live" />
-                    {g.liveCount} live
-                  </span>
-                )}
+              <GroupIcon groupId={g.id} size="sm" />
+              <div className="min-w-0">
+                <div className="font-display font-semibold tracking-tight uppercase text-sm mb-1 truncate">
+                  {g.name || '—'}
+                </div>
+                <div className="flex items-center gap-3 text-xs text-text-faint">
+                  <span>{g.memberCount ?? 0} members</span>
+                  {g.liveCount > 0 && (
+                    <span className="flex items-center gap-1.5 text-live">
+                      <span className="w-1.5 h-1.5 rounded-full bg-live" />
+                      {g.liveCount} live
+                    </span>
+                  )}
+                </div>
               </div>
               <span
                 role="button"

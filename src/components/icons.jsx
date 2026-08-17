@@ -78,6 +78,87 @@ export function PinIcon(props) {
   )
 }
 
+export function SettingsIcon(props) {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" {...props}>
+      <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.7" />
+      <path
+        d="M12 3.5v2M12 18.5v2M4.9 6.4l1.4 1.4M17.7 16.2l1.4 1.4M3.5 12h2M18.5 12h2M4.9 17.6l1.4-1.4M17.7 7.8l1.4-1.4"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}
+
+export function RefreshIcon(props) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" {...props}>
+      <path
+        d="M19 12a7 7 0 10-2.3 5.2M19 12v-4.5M19 12h-4.5"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+export function ExitIcon(props) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" {...props}>
+      <path d="M9 4H5.5A1.5 1.5 0 004 5.5v13A1.5 1.5 0 005.5 20H9" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M14 8l4 4-4 4M18 12H9" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+export function TrashIcon(props) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" {...props}>
+      <path d="M5 7h14M9.5 7V5a1 1 0 011-1h3a1 1 0 011 1v2M7.5 7l.7 12a1.5 1.5 0 001.5 1.4h4.6a1.5 1.5 0 001.5-1.4l.7-12" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+export function ChevronDown(props) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" {...props}>
+      <path d="M5.5 9.5L12 16l6.5-6.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+export function InviteIcon(props) {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" {...props}>
+      <circle cx="9.5" cy="8.5" r="3.2" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M3.2 19c0-3.3 2.8-5.6 6.3-5.6s6.3 2.3 6.3 5.6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M18.5 6.3v5M16 8.8h5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+// Solid shield-with-star badge used for league rank — colored via
+// `currentColor` (pair with a text-league-* class), consistent whether it
+// shows up small on a leaderboard row or large in the league summary card.
+export function LeagueIcon(props) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" {...props}>
+      <path
+        d="M12 2.4l6.8 2.5v5.3c0 4.9-2.9 8.4-6.8 10.6-3.9-2.2-6.8-5.7-6.8-10.6V4.9L12 2.4z"
+        fill="currentColor"
+      />
+      <path
+        d="M12 7.4l1.35 2.75 3.05.4-2.2 2.1.55 3.05L12 14.15l-2.75 1.55.55-3.05-2.2-2.1 3.05-.4L12 7.4z"
+        fill="var(--color-bg)"
+      />
+    </svg>
+  )
+}
+
 export function ShareIcon(props) {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" {...props}>

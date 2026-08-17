@@ -4,17 +4,22 @@ import { useAuth } from '../contexts/AuthContext'
 import { useActiveSession } from '../hooks/useActiveSession'
 import { useSessionClock } from '../hooks/useSessionClock'
 import { useMyGroups } from '../hooks/useMyGroups'
+import { usePolledValue } from '../hooks/usePolledValue'
 import { formatClock, formatDuration, formatMessageTime } from '../lib/format'
+import { dayId } from '../lib/day'
 import {
   startSession, pauseSession, resumeSession, startBreak, endBreak, saveSession, deleteSession,
 } from '../lib/sessions'
 import { loadTimerSettings, saveTimerSettings } from '../lib/timerSettings'
+import { Live } from './GroupDetail'
 import Sheet from '../components/Sheet'
 import Button from '../components/Button'
 import SegmentedControl from '../components/SegmentedControl'
 import Stepper from '../components/Stepper'
 import WheelColumn from '../components/WheelColumn'
 import { ChevronRight, PinIcon } from '../components/icons'
+
+const LIVE_POLL_MS = 60000
 
 const HOURS = Array.from({ length: 13 }, (_, i) => i) // 0-12
 const MINUTES = Array.from({ length: 12 }, (_, i) => i * 5) // 0,5,...,55
@@ -37,6 +42,12 @@ export default function Timer() {
   const [buffering, setBuffering] = useState(false)
   const [stopped, setStopped] = useState(null) // { session, durationSeconds, startedAtMs, endedAtMs }
   const [busy, setBusy] = useState(false)
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+  const [pinnedPanelOpen, setPinnedPanelOpen] = useState(false)
+
+  // Sessions shorter than this are considered too short to be worth saving —
+  // stopping one just ends it quietly instead of showing the save screen.
+  const MIN_SAVEABLE_SECONDS = 60
 
   const loading = session === undefined
   const autoResumeFired = useRef(false)
@@ -125,6 +136,14 @@ export default function Timer() {
     const endedAtMs = Date.now()
     // A short moment of stillness before the summary appears.
     await new Promise((resolve) => setTimeout(resolve, 700))
+
+    // Too short to be worth saving — just end it, no save screen at all.
+    if (durationSeconds < MIN_SAVEABLE_SECONDS) {
+      await deleteSession({ uid: user.uid, groupIds })
+      setBuffering(false)
+      return
+    }
+
     setStopped({ session, durationSeconds, startedAtMs, endedAtMs })
     setBuffering(false)
   }
@@ -146,8 +165,14 @@ export default function Timer() {
     }
   }
 
-  async function handleDelete() {
+  function handleDeleteRequest() {
     if (!stopped || busy) return
+    setDeleteConfirmOpen(true)
+  }
+
+  async function handleConfirmDelete() {
+    if (!stopped || busy) return
+    setDeleteConfirmOpen(false)
     setBusy(true)
     try {
       await deleteSession({ uid: user.uid, groupIds })
@@ -188,7 +213,25 @@ export default function Timer() {
   }
 
   if (stopped) {
-    return <SaveSessionScreen stopped={stopped} busy={busy} onSave={handleSave} onDelete={handleDelete} />
+    return (
+      <>
+        <SaveSessionScreen stopped={stopped} busy={busy} onSave={handleSave} onDelete={handleDeleteRequest} />
+        <Sheet open={deleteConfirmOpen} onClose={() => setDeleteConfirmOpen(false)}>
+          <div className="flex flex-col items-center text-center">
+            <div className="text-base font-medium mb-2">Are you sure you want to delete this session?</div>
+            <p className="text-xs text-text-faint mb-8">This can't be undone.</p>
+            <div className="w-full flex flex-col gap-2.5">
+              <Button variant="ghost" className="w-full" onClick={handleConfirmDelete} disabled={busy}>
+                Delete
+              </Button>
+              <Button variant="text" className="w-full" onClick={() => setDeleteConfirmOpen(false)}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </Sheet>
+      </>
+    )
   }
 
   const selHours = Math.floor(Math.round(settings.targetSeconds / 60) / 60)
@@ -213,10 +256,26 @@ export default function Timer() {
       <div className="w-full flex justify-center shrink-0">
         <PinnedGroupPill
           summary={pinnedSummary}
-          onOpen={() => navigate(`/groups/${pinnedGroupId}`, { state: { tab: 'Live' } })}
+          onOpen={() => setPinnedPanelOpen(true)}
           onPinSomething={() => navigate('/groups')}
         />
       </div>
+
+      {/* Opens as a popup (desktop) / bottom sheet (mobile) rather than
+          navigating away — nothing should pull focus off this page while
+          a session might be running. */}
+      <Sheet open={pinnedPanelOpen} onClose={() => setPinnedPanelOpen(false)}>
+        {pinnedGroupId && (
+          <PinnedGroupLivePanel
+            groupId={pinnedGroupId}
+            currentUid={user.uid}
+            onOpenGroup={() => {
+              setPinnedPanelOpen(false)
+              navigate(`/groups/${pinnedGroupId}`, { state: { tab: 'Live' } })
+            }}
+          />
+        )}
+      </Sheet>
 
       {/* Ring always centers in whatever vertical space is left between
           the top row and the bottom action row below. */}
@@ -422,6 +481,50 @@ function PinnedGroupPill({ summary, onOpen, onPinSomething }) {
       <span className="text-xs text-text-dim whitespace-nowrap">{liveCount} focusing</span>
       <ChevronRight className="w-3.5 h-3.5 text-text-faint shrink-0" />
     </button>
+  )
+}
+
+// Content of the pinned-group popup/sheet: the pinned group's Live view
+// (who's focusing + today's totals), reusing GroupDetail's Live component
+// so the two stay visually identical. Polled, not real-time, same as the
+// group page's own Live tab.
+function PinnedGroupLivePanel({ groupId, currentUid, onOpenGroup }) {
+  const todayId = dayId()
+  const name = usePolledValue(`groups/${groupId}/name`, { intervalMs: LIVE_POLL_MS })
+  const members = usePolledValue(`groups/${groupId}/members`, { intervalMs: LIVE_POLL_MS })
+  const live = usePolledValue(`groups/${groupId}/live`, { intervalMs: LIVE_POLL_MS })
+  const daily = usePolledValue(`groups/${groupId}/dailyTotals/${todayId}`, { intervalMs: LIVE_POLL_MS })
+
+  const memberList = Object.entries(members.value || {}).map(([uid, m]) => ({ uid, ...m }))
+
+  function refresh() {
+    name.refresh()
+    members.refresh()
+    live.refresh()
+    daily.refresh()
+  }
+
+  return (
+    <div>
+      <div className="text-center font-display font-semibold uppercase text-sm tracking-tight mb-4 truncate">
+        {name.value || '—'}
+      </div>
+      <Live
+        memberList={memberList}
+        live={live.value || {}}
+        totals={daily.value || {}}
+        currentUid={currentUid}
+        onRefresh={refresh}
+        refreshing={name.refreshing || members.refreshing || live.refreshing || daily.refreshing}
+        updatedAt={live.updatedAt}
+      />
+      <button
+        onClick={onOpenGroup}
+        className="w-full text-center text-xs text-text-faint underline decoration-dotted underline-offset-4 mt-6"
+      >
+        Open full group page
+      </button>
+    </div>
   )
 }
 
