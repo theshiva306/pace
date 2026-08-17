@@ -70,6 +70,20 @@ export async function deleteSession({ uid, sessionId }) {
   await ensureUserStats(uid)
 }
 
+export async function deletePersonalData(uid) {
+  if (!uid) throw new Error('Missing user id')
+
+  // Delete only personal Pace data. Group records and group membership records
+  // are intentionally untouched so deleting personal study history cannot
+  // destroy or alter any group.
+  await Promise.all([
+    remove(ref(db, `activeSessions/${uid}`)),
+    remove(ref(db, `completedSessions/${uid}`)),
+    remove(ref(db, `userStats/${uid}`)),
+    remove(ref(db, `users/${uid}`)),
+  ])
+}
+
 export async function createGroup({ uid, displayName, photoURL, name }) {
   const groupRef = push(ref(db, 'groups'))
   const groupId = groupRef.key
