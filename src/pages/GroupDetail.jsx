@@ -40,7 +40,7 @@ export default function GroupDetail() {
   async function handleRemoveMember(targetUid) { if (busy) return; setBusy(true); try { await removeMember({ groupId, targetUid }) } finally { setBusy(false) } }
   async function handleLeave() { if (busy) return; setBusy(true); try { await leaveGroup({ uid: user.uid, groupId }); setLeaveConfirmOpen(false); navigate('/groups') } finally { setBusy(false) } }
   async function handleDelete() { if (busy) return; setBusy(true); try { await deleteGroup({ groupId, memberUids: memberList.map((m) => m.uid) }); setDeleteConfirmOpen(false); navigate('/groups') } finally { setBusy(false) } }
-  return <div className="min-h-svh px-5 pt-[calc(env(safe-area-inset-top)+20px)] pb-32 max-w-md mx-auto md:max-w-2xl md:pt-14 flex flex-col">
+  return <div className="min-h-svh px-5 pt-[calc(env(safe-area-inset-top)+20px)] pb-6 max-w-md mx-auto md:max-w-2xl md:pt-14 flex flex-col">
     <div className="flex items-center justify-between mb-4"><button onClick={() => navigate('/groups')} aria-label="Back" className="text-text-dim hover:text-text -ml-1.5 p-1.5"><ChevronLeft /></button><div className="flex items-center gap-2"><button onClick={() => setInviteOpen(true)} className="flex items-center gap-1.5 text-xs font-medium tracking-wide text-live border border-live/30 bg-live-soft rounded-full pl-3 pr-3.5 py-2"><InviteIcon /> Invite friends</button><button onClick={() => setSettingsOpen(true)} aria-label="Group settings" className="text-text-dim hover:text-text p-2 rounded-full border border-border bg-surface"><SettingsIcon /></button></div></div>
     <div className="flex items-center gap-3.5 mb-6"><GroupIcon groupId={groupId} size="md" /><div className="flex-1 min-w-0"><div className="font-display font-semibold tracking-tight uppercase text-lg truncate">{group?.name || '—'}</div><div className="text-xs text-text-faint">{memberList.length} members</div></div></div>
     <div className="flex items-center gap-6 border-b border-border-soft mb-6">{TABS.map((t) => <button key={t} onClick={() => setTab(t)} className={`relative flex items-center gap-1.5 text-xs font-medium tracking-wide py-3 transition-colors ${tab === t ? 'text-text' : 'text-text-faint'}`}>{t === 'Live' && <span className="w-1.5 h-1.5 rounded-full bg-live" aria-hidden />}{t}{tab === t && <span className="absolute left-0 right-0 -bottom-px h-[2px] bg-text rounded-full" />}</button>)}</div>
@@ -127,7 +127,7 @@ function Chat({ groupId, messages, user, profile }) {
         photoURL: profile?.photoURL || user.photoURL,
         text: trimmed,
       })
-      requestAnimationFrame(() => inputRef.current?.focus())
+      requestAnimationFrame(() => inputRef.current?.focus({ preventScroll: true }))
     } finally {
       setSending(false)
     }
@@ -189,7 +189,9 @@ function Chat({ groupId, messages, user, profile }) {
           className="min-w-0 flex-1 h-11 bg-surface border border-border rounded-2xl px-4 text-sm outline-none focus:border-text-faint placeholder:text-text-faint"
         />
         <button
-          type="submit"
+          type="button"
+          onPointerDown={(e) => e.preventDefault()}
+          onClick={handleSend}
           aria-label="Send message"
           disabled={!text.trim() || sending}
           className="w-11 h-11 rounded-2xl bg-accent text-bg flex items-center justify-center shrink-0 active:scale-95 transition-transform disabled:opacity-35 disabled:cursor-not-allowed"
