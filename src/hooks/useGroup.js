@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ref, onValue } from 'firebase/database'
 import { db } from '../firebase'
 
-// Group membership, chat, and the group's display metadata remain group-owned.
-// Study totals and live presence are user-owned data. The group subscribes to
-// each member's public study stats, so joining a new group immediately shows
-// that user's existing totals instead of depending on old group snapshots.
+// Group membership, chat, and display metadata remain group-owned.
+// Study totals and live presence are user-owned. The group subscribes to
+// each member's userStats and activeSessions, so joining a new group
+// immediately exposes the user's existing stats and current session.
 export function useGroup(groupId, weekId, dayId) {
   const [group, setGroup] = useState(undefined)
   const [members, setMembers] = useState({})
@@ -14,6 +14,7 @@ export function useGroup(groupId, weekId, dayId) {
   const [sessionCounts, setSessionCounts] = useState({})
   const [daily, setDaily] = useState({})
   const [live, setLive] = useState({})
+  const [now, setNow] = useState(Date.now())
 
   useEffect(() => {
     if (!groupId) return undefined
@@ -73,5 +74,49 @@ export function useGroup(groupId, weekId, dayId) {
     return () => unsubs.forEach((u) => u())
   }, [members, weekId, dayId])
 
-  return { group, members, messages, weekly, sessionCounts, daily, live }
+  const hasLive = Object.values(live).some(Boolean)
+  useEffect(() => {
+    if (!hasLive) return undefined
+    setNow(Date.now())
+    const id = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(id)
+  }, [hasLive])
+
+  const realtimeWeekly = useMemo(() => {
+    const result = { ...weekly }
+    for (const [uid, session] of Object.entries(live)) {
+      if (!session) continue
+      result[uid] = (result[uid] || 0) + focusSeconds(session, now)
+    }
+    return result
+  }, [weekly, live, now])
+
+  const realtimeDaily = useMemo(() => {
+    const result = { ...daily }
+    for (const [uid, session] of Object.entries(live)) {
+      if (!session) continue
+      result[uid] = (result[uid] || 0) + focusSeconds(session, now)
+    }
+    return result
+  }, [daily, live, now])
+
+  return {
+    group,
+    members,
+    messages,
+    weekly: realtimeWeekly,
+    sessionCounts,
+    daily: realtimeDaily,
+    live,
+  }
+}
+
+function focusSeconds(session, now) {
+  if (!session?.startedAt) return 0
+  const total = Math.max(0, (now - Number(session.startedAt)) / 1000)
+  const pausedBefore = Math.max(0, Number(session.pausedSeconds) || 0)
+  const pausedNow = session.status !== 'active' && session.pausedAt
+    ? Math.max(0, (now - Number(session.pausedAt)) / 1000)
+    : 0
+  return Math.floor(Math.max(0, total - pausedBefore - pausedNow))
 }
