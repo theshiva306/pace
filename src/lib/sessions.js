@@ -78,7 +78,6 @@ export async function createGroup({ uid, displayName, photoURL, name }) {
     [`groups/${groupId}/createdBy`]: uid,
     [`groups/${groupId}/createdAt`]: serverTimestamp(),
     [`groups/${groupId}/adminUid`]: uid,
-    [`groups/${groupId}/memberCount`]: 1,
     [`groups/${groupId}/members/${uid}`]: { displayName, photoURL: photoURL ?? null, joinedAt: serverTimestamp() },
     [`userGroups/${uid}/${groupId}`]: true,
   })
@@ -88,19 +87,14 @@ export async function createGroup({ uid, displayName, photoURL, name }) {
 export async function joinGroupByLink({ uid, displayName, photoURL, groupId }) {
   if (!groupId) return { error: 'invalid' }
 
-  const [groupSnap, memberCountSnap] = await Promise.all([
-    get(ref(db, `groups/${groupId}/name`)),
-    get(ref(db, `groups/${groupId}/memberCount`)),
-  ])
+  const groupSnap = await get(ref(db, `groups/${groupId}/name`))
+  if (!groupSnap.exists()) return { error: 'invalid' }
 
-  if (!groupSnap.exists() || !memberCountSnap.exists()) return { error: 'invalid' }
-
-  const memberCount = Number(memberCountSnap.val()) || 0
-  if (memberCount >= MAX_GROUP_SIZE) return { error: 'full' }
+  const existingMember = await get(ref(db, `groups/${groupId}/members/${uid}`))
+  if (existingMember.exists()) return { groupId }
 
   await update(ref(db), {
     [`groups/${groupId}/members/${uid}`]: { displayName, photoURL: photoURL ?? null, joinedAt: serverTimestamp() },
-    [`groups/${groupId}/memberCount`]: memberCount + 1,
     [`userGroups/${uid}/${groupId}`]: true,
   })
   return { groupId }
@@ -117,7 +111,6 @@ export async function deleteGroup({ groupId, memberUids }) {
 export async function removeMember({ groupId, targetUid }) {
   await update(ref(db), {
     [`groups/${groupId}/members/${targetUid}`]: null,
-    [`groups/${groupId}/memberCount`]: Math.max(0, Number((await get(ref(db, `groups/${groupId}/memberCount`))).val() || 1) - 1),
     [`userGroups/${targetUid}/${groupId}`]: null,
   })
 }
@@ -130,7 +123,6 @@ export async function leaveGroup({ uid, groupId }) {
   if (group.adminUid === uid && others.length === 0) return deleteGroup({ groupId, memberUids: Object.keys(members) })
   const updates = {
     [`groups/${groupId}/members/${uid}`]: null,
-    [`groups/${groupId}/memberCount`]: Math.max(0, Object.keys(members).length - 1),
     [`userGroups/${uid}/${groupId}`]: null,
   }
   if (group.adminUid === uid && others.length > 0) {
