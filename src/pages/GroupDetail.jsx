@@ -2,7 +2,6 @@ import { useState, useMemo, useRef, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useGroup } from '../hooks/useGroup'
-import { usePolledValue } from '../hooks/usePolledValue'
 import { formatDuration, formatMessageTime } from '../lib/format'
 import { sendMessage, renameGroup, removeMember, leaveGroup, deleteGroup } from '../lib/sessions'
 import { weekInfo } from '../lib/week'
@@ -21,7 +20,6 @@ export default function GroupDetail() {
   const { groupId } = useParams()
   const navigate = useNavigate()
   const { user, profile } = useAuth()
-  const { group, members, messages } = useGroup(groupId)
   const todayId = useMemo(() => dayId(), [])
   const [tab, setTab] = useState('Leaderboard')
   const [weekOffset, setWeekOffset] = useState(0)
@@ -34,17 +32,14 @@ export default function GroupDetail() {
   const [busy, setBusy] = useState(false)
   const week = useMemo(() => weekInfo(weekOffset), [weekOffset])
 
-  // Realtime Firebase subscriptions. The totals hook overlays the current
-  // active session locally, so both views tick without per-second writes.
-  const weekly = usePolledValue(`groups/${groupId}/weeklyTotals/${week.weekId}`, { enabled: !!groupId })
-  const sessionCounts = usePolledValue(`groups/${groupId}/weeklySessionCounts/${week.weekId}`, { enabled: !!groupId })
-  const live = usePolledValue(`groups/${groupId}/live`, { enabled: !!groupId })
-  const daily = usePolledValue(`groups/${groupId}/dailyTotals/${todayId}`, { enabled: !!groupId })
+  // The source of truth for focus data is now each user's own /userStats
+  // and /activeSessions data. The group only owns membership, metadata and chat.
+  const { group, members, messages, weekly, sessionCounts, daily, live } = useGroup(groupId, week.weekId, todayId)
 
   const memberList = Object.entries(members).map(([uid, m]) => ({ uid, ...m }))
   const isAdmin = group?.adminUid === user.uid
   const [memberSheetUid, setMemberSheetUid] = useState(null)
-  const memberSheetStats = useMemo(() => computeMemberStats(memberList, weekly.value || {}, sessionCounts.value || {}, memberSheetUid), [memberList, weekly.value, sessionCounts.value, memberSheetUid])
+  const memberSheetStats = useMemo(() => computeMemberStats(memberList, weekly || {}, sessionCounts || {}, memberSheetUid), [memberList, weekly, sessionCounts, memberSheetUid])
 
   async function handleRename(name) { if (!name.trim() || busy) return; setBusy(true); try { await renameGroup({ groupId, name: name.trim() }) } finally { setBusy(false) } }
   async function handleRemoveMember(targetUid) { if (busy) return; setBusy(true); try { await removeMember({ groupId, targetUid }) } finally { setBusy(false) } }
@@ -55,8 +50,8 @@ export default function GroupDetail() {
     <div className="flex items-center justify-between mb-4"><button onClick={() => navigate('/groups')} aria-label="Back" className="text-text-dim hover:text-text -ml-1.5 p-1.5"><ChevronLeft /></button><div className="flex items-center gap-2"><button onClick={() => setInviteOpen(true)} className="flex items-center gap-1.5 text-xs font-medium tracking-wide text-live border border-live/30 bg-live-soft rounded-full pl-3 pr-3.5 py-2"><InviteIcon /> Invite friends</button><button onClick={() => setSettingsOpen(true)} aria-label="Group settings" className="text-text-dim hover:text-text p-2 rounded-full border border-border bg-surface"><SettingsIcon /></button></div></div>
     <div className="flex items-center gap-3.5 mb-6"><GroupIcon groupId={groupId} size="md" /><div className="flex-1 min-w-0"><div className="font-display font-semibold tracking-tight uppercase text-lg truncate">{group?.name || '—'}</div><div className="text-xs text-text-faint">{memberList.length} members</div></div></div>
     <div className="flex items-center gap-6 border-b border-border-soft mb-6">{TABS.map((t) => <button key={t} onClick={() => setTab(t)} className={`relative flex items-center gap-1.5 text-xs font-medium tracking-wide py-3 transition-colors ${tab === t ? 'text-text' : 'text-text-faint'}`}>{t === 'Live' && <span className="w-1.5 h-1.5 rounded-full bg-live" aria-hidden />}{t}{tab === t && <span className="absolute left-0 right-0 -bottom-px h-[2px] bg-text rounded-full" />}</button>)}</div>
-    {tab === 'Leaderboard' && <Leaderboard memberList={memberList} totals={weekly.value || {}} currentUid={user.uid} week={week} onOpenWeekPicker={() => setWeekPickerOpen(true)} onSelectMember={setMemberSheetUid} />}
-    {tab === 'Live' && <Live memberList={memberList} live={live.value || {}} totals={daily.value || {}} currentUid={user.uid} onSelectMember={setMemberSheetUid} />}
+    {tab === 'Leaderboard' && <Leaderboard memberList={memberList} totals={weekly || {}} currentUid={user.uid} week={week} onOpenWeekPicker={() => setWeekPickerOpen(true)} onSelectMember={setMemberSheetUid} />}
+    {tab === 'Live' && <Live memberList={memberList} live={live || {}} totals={daily || {}} currentUid={user.uid} onSelectMember={setMemberSheetUid} />}
     {tab === 'Chat' && <Chat groupId={groupId} messages={messages} user={user} profile={profile} />}
     <Sheet open={!!memberSheetUid} onClose={() => setMemberSheetUid(null)}><MemberDetailContent stats={memberSheetStats} self={memberSheetUid === user.uid} /></Sheet>
     <Sheet open={weekPickerOpen} onClose={() => setWeekPickerOpen(false)}><WeekPickerContent selected={weekOffset} onSelect={(offset) => { setWeekOffset(offset); setWeekPickerOpen(false) }} /></Sheet>
@@ -132,7 +127,7 @@ const RANK_COLOR = ['text-league-gold', 'text-league-silver', 'text-league-bronz
 
 function Leaderboard({ memberList, totals, currentUid, week, onOpenWeekPicker, onSelectMember }) { const ranked = [...memberList].map((m) => ({ ...m, seconds: totals[m.uid] || 0 })).sort((a, b) => b.seconds - a.seconds); const mine = leagueStatus(ranked, currentUid, { final: !week.isCurrent }); return <div className="animate-fade-in"><div className="flex items-center justify-between mb-4 gap-3"><button onClick={onOpenWeekPicker} className="flex items-center gap-1.5 text-left"><div><div className="text-sm font-semibold tracking-tight">{week.label}</div><div className="text-[11px] text-text-faint">{week.isCurrent ? `Ends in ${week.daysLeft} day${week.daysLeft === 1 ? '' : 's'}` : 'Session ended'}</div></div><ChevronDown className="text-text-faint mt-2.5" /></button>{mine && <div className="flex items-center gap-2 shrink-0"><LeagueIcon className={mine.textClass} /><div className="text-right"><div className={`text-xs font-semibold tracking-wide ${mine.textClass}`}>{mine.name} league</div><div className="text-[11px] text-text-faint">{mine.detail}</div></div></div>}</div><RefreshRow label="STANDINGS" /><div className="flex flex-col">{ranked.map((m, i) => <button key={m.uid} onClick={() => onSelectMember(m.uid)} className={`flex items-center gap-4 py-3 border-b border-border-soft last:border-0 text-left ${m.uid === currentUid ? 'bg-accent-soft/40 -mx-3 px-3 rounded-xl' : ''}`}><span className="w-7 flex items-center justify-center text-sm text-text-faint tabular-nums">{i < 3 ? <LeagueIcon width="18" height="18" className={RANK_COLOR[i]} /> : i + 1}</span><Avatar name={m.displayName} photoURL={m.photoURL} size="sm" /><span className="flex-1 text-sm font-medium truncate">{m.displayName}</span><span className="text-sm tabular-nums text-text-dim">{formatDuration(m.seconds)}</span></button>)}</div></div> }
 
-// Live keeps the original card/list presentation while using the new realtime daily totals.
+// Live keeps the original card/list presentation while using realtime daily user totals.
 export function Live({ memberList, live, totals, currentUid, onSelectMember }) {
   const liveMembers = memberList.filter((m) => {
     const status = live[m.uid]?.status
