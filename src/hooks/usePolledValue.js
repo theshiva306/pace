@@ -4,10 +4,9 @@ import { db } from '../firebase'
 import { isoWeekId } from '../lib/week'
 import { dayId } from '../lib/day'
 
-// Kept under the old hook name so existing callers don't need to change.
-// Group totals are realtime and include the currently active session as a
-// temporary contribution. The active contribution is calculated locally
-// from timestamps and is never written to Firebase every second.
+// Legacy-compatible hook. Group study data is now user-owned, so when an
+// existing group path is requested we resolve it through the group's members
+// into userStats/activeSessions instead of reading deleted group-owned totals.
 export function usePolledValue(path, { intervalMs = 60000, enabled = true } = {}) {
   const [value, setValue] = useState(undefined)
   const [refreshing, setRefreshing] = useState(false)
@@ -16,110 +15,139 @@ export function usePolledValue(path, { intervalMs = 60000, enabled = true } = {}
   const recomputeRef = useRef(null)
   const mountedRef = useRef(true)
 
-  const isDailyTotal = /^groups\/[^/]+\/dailyTotals\/[^/]+$/.test(path || '')
-  const isWeeklyTotal = /^groups\/[^/]+\/weeklyTotals\/[^/]+$/.test(path || '')
-  const needsLiveOverlay = isDailyTotal || isWeeklyTotal
-  const groupId = needsLiveOverlay ? path.split('/')[1] : null
-  const livePath = groupId ? `groups/${groupId}/live` : null
-  const periodId = needsLiveOverlay ? path.split('/')[3] : null
+  const parts = (path || '').split('/')
+  const isGroupLive = parts.length === 3 && parts[0] === 'groups' && parts[2] === 'live'
+  const isDailyTotal = parts.length === 4 && parts[0] === 'groups' && parts[2] === 'dailyTotals'
+  const isWeeklyTotal = parts.length === 4 && parts[0] === 'groups' && parts[2] === 'weeklyTotals'
+  const isGroupStudyPath = isGroupLive || isDailyTotal || isWeeklyTotal
+  const groupId = isGroupStudyPath ? parts[1] : null
+  const periodId = isDailyTotal || isWeeklyTotal ? parts[3] : null
 
   useEffect(() => {
     mountedRef.current = true
     return () => { mountedRef.current = false }
   }, [])
 
-  // This is only a local display clock. It never writes to Firebase.
   useEffect(() => {
-    if (!enabled || !needsLiveOverlay) return
+    if (!enabled || !isGroupStudyPath) return undefined
     const id = setInterval(() => {
       nowRef.current = Date.now()
       recomputeRef.current?.()
     }, 1000)
     return () => clearInterval(id)
-  }, [enabled, needsLiveOverlay])
+  }, [enabled, isGroupStudyPath])
 
   const refresh = useCallback(async () => {
     if (!path) return
     setRefreshing(true)
     try {
-      const snap = await get(ref(db, path))
-      if (mountedRef.current) {
-        setValue(snap.exists() ? snap.val() : null)
-        setUpdatedAt(Date.now())
+      if (isGroupStudyPath) {
+        nowRef.current = Date.now()
+        recomputeRef.current?.()
+      } else {
+        const snap = await get(ref(db, path))
+        if (mountedRef.current) setValue(snap.exists() ? snap.val() : null)
       }
+      if (mountedRef.current) setUpdatedAt(Date.now())
     } finally {
       if (mountedRef.current) setRefreshing(false)
     }
-  }, [path])
+  }, [path, isGroupStudyPath])
 
   useEffect(() => {
-    if (!enabled || !path) return
+    if (!enabled || !path) return undefined
 
-    let baseValue = null
-    let liveValue = null
+    if (!isGroupStudyPath) {
+      const unsub = onValue(ref(db, path), (snap) => {
+        if (!mountedRef.current) return
+        setValue(snap.exists() ? snap.val() : null)
+        setUpdatedAt(Date.now())
+        setRefreshing(false)
+      }, () => mountedRef.current && setRefreshing(false))
+      return unsub
+    }
+
+    let members = {}
+    const stats = {}
+    const sessions = {}
+    const memberUnsubs = new Map()
 
     const emit = () => {
       if (!mountedRef.current) return
-      const base = baseValue || {}
-
-      if (!needsLiveOverlay) {
-        setValue(baseValue)
-        setUpdatedAt(Date.now())
-        setRefreshing(false)
-        return
-      }
-
-      const merged = { ...base }
+      const result = {}
       const currentPeriod = isDailyTotal ? dayId() : isoWeekId()
-      const shouldIncludeActive = periodId === currentPeriod
+      const includeActive = isGroupLive || periodId === currentPeriod
 
-      if (shouldIncludeActive && liveValue) {
-        Object.entries(liveValue).forEach(([uid, session]) => {
-          if (!session?.startedAt) return
-          const startedAt = Number(session.startedAt)
-          if (!Number.isFinite(startedAt)) return
+      for (const uid of Object.keys(members)) {
+        if (isGroupLive) {
+          if (sessions[uid]) result[uid] = sessions[uid]
+          continue
+        }
 
-          let elapsed
-          if (session.status === 'paused' || session.status === 'onBreak') {
-            const pausedAt = Number(session.pausedAt)
-            elapsed = Number.isFinite(pausedAt) ? Math.max(0, (pausedAt - startedAt) / 1000) : 0
-          } else {
-            elapsed = Math.max(0, (nowRef.current - startedAt) / 1000)
-          }
-
-          elapsed = Math.max(0, Math.floor(elapsed - Number(session.pausedSeconds || 0)))
-          merged[uid] = Number(base[uid] || 0) + elapsed
-        })
+        result[uid] = Number(stats[uid] || 0)
+        if (includeActive && sessions[uid]?.startedAt) {
+          result[uid] += focusSeconds(sessions[uid], nowRef.current)
+        }
       }
 
-      setValue(merged)
+      setValue(result)
       setUpdatedAt(Date.now())
       setRefreshing(false)
     }
 
     recomputeRef.current = emit
 
-    const unsubBase = onValue(ref(db, path), (snap) => {
-      baseValue = snap.exists() ? snap.val() : null
-      emit()
-    }, () => {
-      if (mountedRef.current) setRefreshing(false)
-    })
-
-    let unsubLive = null
-    if (needsLiveOverlay && livePath) {
-      unsubLive = onValue(ref(db, livePath), (snap) => {
-        liveValue = snap.exists() ? snap.val() : null
+    const subscribeMember = (uid) => {
+      if (memberUnsubs.has(uid)) return
+      const unsubs = []
+      unsubs.push(onValue(ref(db, `activeSessions/${uid}`), (snap) => {
+        sessions[uid] = snap.exists() ? snap.val() : null
         emit()
-      }, () => {})
+      }))
+
+      if (isDailyTotal || isWeeklyTotal) {
+        const statPath = isDailyTotal
+          ? `userStats/${uid}/dailyTotals/${periodId}`
+          : `userStats/${uid}/weeklyTotals/${periodId}`
+        unsubs.push(onValue(ref(db, statPath), (snap) => {
+          stats[uid] = snap.val() || 0
+          emit()
+        }))
+      }
+      memberUnsubs.set(uid, () => unsubs.forEach((u) => u()))
     }
+
+    const unsubMembers = onValue(ref(db, `groups/${groupId}/members`), (snap) => {
+      const nextMembers = snap.val() || {}
+      Object.keys(members).filter((uid) => !nextMembers[uid]).forEach((uid) => {
+        memberUnsubs.get(uid)?.()
+        memberUnsubs.delete(uid)
+        delete sessions[uid]
+        delete stats[uid]
+      })
+      members = nextMembers
+      Object.keys(members).forEach(subscribeMember)
+      emit()
+    })
 
     return () => {
       if (recomputeRef.current === emit) recomputeRef.current = null
-      unsubBase()
-      unsubLive?.()
+      unsubMembers()
+      memberUnsubs.forEach((unsub) => unsub())
+      memberUnsubs.clear()
     }
-  }, [path, enabled, needsLiveOverlay, livePath, periodId, isDailyTotal])
+  }, [path, enabled, isGroupStudyPath, isGroupLive, isDailyTotal, isWeeklyTotal, groupId, periodId])
 
   return { value, refresh, refreshing, updatedAt, loading: value === undefined }
+}
+
+function focusSeconds(session, now) {
+  if (!session?.startedAt) return 0
+  const startedAt = Number(session.startedAt)
+  if (!Number.isFinite(startedAt)) return 0
+  const pausedBefore = Math.max(0, Number(session.pausedSeconds) || 0)
+  const pausedNow = session.status !== 'active' && session.pausedAt
+    ? Math.max(0, (now - Number(session.pausedAt)) / 1000)
+    : 0
+  return Math.floor(Math.max(0, (now - startedAt) / 1000 - pausedBefore - pausedNow))
 }
