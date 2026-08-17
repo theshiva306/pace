@@ -12,7 +12,8 @@ export function usePolledValue(path, { intervalMs = 60000, enabled = true } = {}
   const [value, setValue] = useState(undefined)
   const [refreshing, setRefreshing] = useState(false)
   const [updatedAt, setUpdatedAt] = useState(null)
-  const [now, setNow] = useState(Date.now())
+  const nowRef = useRef(Date.now())
+  const recomputeRef = useRef(null)
   const mountedRef = useRef(true)
 
   const isDailyTotal = /^groups\/[^/]+\/dailyTotals\/[^/]+$/.test(path || '')
@@ -27,11 +28,12 @@ export function usePolledValue(path, { intervalMs = 60000, enabled = true } = {}
     return () => { mountedRef.current = false }
   }, [])
 
-  // Only the UI clock ticks locally. Firebase is never written every second.
+  // This is only a local display clock. It never writes to Firebase.
   useEffect(() => {
     if (!enabled || !needsLiveOverlay) return
     const id = setInterval(() => {
-      if (mountedRef.current) setNow(Date.now())
+      nowRef.current = Date.now()
+      recomputeRef.current?.()
     }, 1000)
     return () => clearInterval(id)
   }, [enabled, needsLiveOverlay])
@@ -58,8 +60,8 @@ export function usePolledValue(path, { intervalMs = 60000, enabled = true } = {}
 
     const emit = () => {
       if (!mountedRef.current) return
-
       const base = baseValue || {}
+
       if (!needsLiveOverlay) {
         setValue(baseValue)
         setUpdatedAt(Date.now())
@@ -74,22 +76,18 @@ export function usePolledValue(path, { intervalMs = 60000, enabled = true } = {}
       if (shouldIncludeActive && liveValue) {
         Object.entries(liveValue).forEach(([uid, session]) => {
           if (!session?.startedAt) return
-
           const startedAt = Number(session.startedAt)
           if (!Number.isFinite(startedAt)) return
 
-          let elapsed = 0
+          let elapsed
           if (session.status === 'paused' || session.status === 'onBreak') {
             const pausedAt = Number(session.pausedAt)
-            if (Number.isFinite(pausedAt)) {
-              elapsed = Math.max(0, (pausedAt - startedAt) / 1000)
-            }
+            elapsed = Number.isFinite(pausedAt) ? Math.max(0, (pausedAt - startedAt) / 1000) : 0
           } else {
-            elapsed = Math.max(0, (now - startedAt) / 1000)
+            elapsed = Math.max(0, (nowRef.current - startedAt) / 1000)
           }
 
-          elapsed -= Number(session.pausedSeconds || 0)
-          elapsed = Math.max(0, Math.floor(elapsed))
+          elapsed = Math.max(0, Math.floor(elapsed - Number(session.pausedSeconds || 0)))
           merged[uid] = Number(base[uid] || 0) + elapsed
         })
       }
@@ -98,6 +96,8 @@ export function usePolledValue(path, { intervalMs = 60000, enabled = true } = {}
       setUpdatedAt(Date.now())
       setRefreshing(false)
     }
+
+    recomputeRef.current = emit
 
     const unsubBase = onValue(ref(db, path), (snap) => {
       baseValue = snap.exists() ? snap.val() : null
@@ -115,10 +115,11 @@ export function usePolledValue(path, { intervalMs = 60000, enabled = true } = {}
     }
 
     return () => {
+      if (recomputeRef.current === emit) recomputeRef.current = null
       unsubBase()
       unsubLive?.()
     }
-  }, [path, enabled, needsLiveOverlay, livePath, periodId, isDailyTotal, now])
+  }, [path, enabled, needsLiveOverlay, livePath, periodId, isDailyTotal])
 
   return { value, refresh, refreshing, updatedAt, loading: value === undefined }
 }
