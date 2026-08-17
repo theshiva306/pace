@@ -11,11 +11,13 @@ import Profile from './pages/Profile'
 import JoinLink from './pages/JoinLink'
 
 function Shell({ children }) {
+  const location = useLocation()
+  const isGroupDetail = /^\/groups\/[^/]+$/.test(location.pathname)
   return (
     <div className="md:flex">
       <SideNav />
       <div className="flex-1">{children}</div>
-      <BottomNav />
+      {!isGroupDetail && <BottomNav />}
     </div>
   )
 }
