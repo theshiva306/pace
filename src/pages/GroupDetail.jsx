@@ -84,8 +84,52 @@ const RANK_COLOR = ['text-league-gold', 'text-league-silver', 'text-league-bronz
 
 function Leaderboard({ memberList, totals, currentUid, onRefresh, refreshing, updatedAt, week, onOpenWeekPicker, onSelectMember }) { const ranked = [...memberList].map((m) => ({ ...m, seconds: totals[m.uid] || 0 })).sort((a, b) => b.seconds - a.seconds); const mine = leagueStatus(ranked, currentUid, { final: !week.isCurrent }); return <div className="animate-fade-in"><div className="flex items-center justify-between mb-4 gap-3"><button onClick={onOpenWeekPicker} className="flex items-center gap-1.5 text-left"><div><div className="text-sm font-semibold tracking-tight">{week.label}</div><div className="text-[11px] text-text-faint">{week.isCurrent ? `Ends in ${week.daysLeft} day${week.daysLeft === 1 ? '' : 's'}` : 'Session ended'}</div></div><ChevronDown className="text-text-faint mt-2.5" /></button>{mine && <div className="flex items-center gap-2 shrink-0"><LeagueIcon className={mine.textClass} /><div className="text-right"><div className={`text-xs font-semibold tracking-wide ${mine.textClass}`}>{mine.name} league</div><div className="text-[11px] text-text-faint">{mine.detail}</div></div></div>}</div><RefreshRow label="STANDINGS" onRefresh={onRefresh} refreshing={refreshing} updatedAt={updatedAt} /><div className="flex flex-col">{ranked.map((m, i) => <button key={m.uid} onClick={() => onSelectMember(m.uid)} className={`flex items-center gap-4 py-3 border-b border-border-soft last:border-0 text-left ${m.uid === currentUid ? 'bg-accent-soft/40 -mx-3 px-3 rounded-xl' : ''}`}><span className="w-7 flex items-center justify-center text-sm text-text-faint tabular-nums">{i < 3 ? <LeagueIcon width="18" height="18" className={RANK_COLOR[i]} /> : i + 1}</span><Avatar name={m.displayName} photoURL={m.photoURL} size="sm" /><span className="flex-1 text-sm font-medium truncate">{m.displayName}</span><span className="text-sm tabular-nums text-text-dim">{formatDuration(m.seconds)}</span></button>)}</div></div> }
 
-// Daily leaderboard: permanent saved time plus the current temporary session.
-// Paused/on-break members remain visible and are intentionally greyed out.
-export function Live({ memberList, live, totals, currentUid, onRefresh, refreshing, updatedAt, onSelectMember }) { const ranked = [...memberList].map((m) => ({ ...m, seconds: totals[m.uid] || 0, status: live[m.uid]?.status || null })).sort((a, b) => b.seconds - a.seconds); return <div className="animate-fade-in"><RefreshRow label="TODAY" onRefresh={onRefresh} refreshing={refreshing} updatedAt={updatedAt} /><div className="flex flex-col">{ranked.map((m, i) => { const paused = m.status === 'paused' || m.status === 'onBreak'; const studying = m.status === 'active'; return <button key={m.uid} onClick={() => onSelectMember(m.uid)} className={`flex items-center gap-4 py-3 border-b border-border-soft last:border-0 text-left ${m.uid === currentUid ? 'bg-accent-soft/40 -mx-3 px-3 rounded-xl' : ''} ${paused ? 'opacity-55' : ''}`}><span className="w-7 flex items-center justify-center text-sm text-text-faint tabular-nums">{i < 3 ? <LeagueIcon width="18" height="18" className={RANK_COLOR[i]} /> : i + 1}</span><Avatar name={m.displayName} photoURL={m.photoURL} size="sm" live={studying} /><span className="flex-1 min-w-0"><span className="block text-sm font-medium truncate">{m.uid === currentUid ? 'You' : m.displayName}</span>{studying && <span className="block text-[10px] text-live tracking-wide">STUDYING</span>}{paused && <span className="block text-[10px] text-text-faint tracking-wide">{m.status === 'onBreak' ? 'BREAK' : 'PAUSED'}</span>}</span><span className={`text-sm tabular-nums ${studying ? 'text-live' : paused ? 'text-text-faint' : 'text-text-dim'}`}>{formatDuration(m.seconds)}</span></button> })}</div></div> }
+// Live keeps the original card/list presentation while using the new realtime daily totals.
+export function Live({ memberList, live, totals, currentUid, onRefresh, refreshing, updatedAt, onSelectMember }) {
+  const liveMembers = memberList.filter((m) => {
+    const status = live[m.uid]?.status
+    return status === 'active' || status === 'paused' || status === 'onBreak'
+  })
+  const idleMembers = memberList.filter((m) => !liveMembers.some((x) => x.uid === m.uid))
+
+  return <div className="animate-fade-in">
+    <RefreshRow label="TODAY" onRefresh={onRefresh} refreshing={refreshing} updatedAt={updatedAt} />
+
+    {liveMembers.length === 0 ? (
+      <p className="text-text-dim text-sm py-6">No one studying</p>
+    ) : (
+      <div className="grid grid-cols-3 gap-3 mb-8">
+        {liveMembers.map((m) => {
+          const status = live[m.uid]?.status
+          const paused = status === 'paused' || status === 'onBreak'
+          return <LiveTile key={m.uid} member={m} seconds={totals[m.uid] || 0} self={m.uid === currentUid} paused={paused} status={status} onClick={() => onSelectMember(m.uid)} />
+        })}
+      </div>
+    )}
+
+    {idleMembers.length > 0 && <>
+      <div className="text-[13px] tracking-[0.25em] text-text-faint mb-3">NOT FOCUSING</div>
+      <div className="flex flex-col gap-3">
+        {idleMembers.map((m) => (
+          <button key={m.uid} onClick={() => onSelectMember(m.uid)} className="flex items-center gap-3 text-left w-full">
+            <Avatar name={m.displayName} photoURL={m.photoURL} size="sm" />
+            <span className="text-sm text-text-dim flex-1 truncate">{m.uid === currentUid ? 'You' : m.displayName}</span>
+            <span className="text-xs tabular-nums text-text-faint">{formatDuration(totals[m.uid] || 0)}</span>
+          </button>
+        ))}
+      </div>
+    </>}
+  </div>
+}
+
+function LiveTile({ member, seconds, self, paused, status, onClick }) {
+  const label = paused ? (status === 'onBreak' ? 'BREAK' : 'PAUSED') : 'STUDYING'
+  return <button onClick={onClick} className={`flex flex-col items-center gap-2 bg-surface border border-border rounded-2xl py-4 ${paused ? 'opacity-55' : ''}`}>
+    <Avatar name={member.displayName} photoURL={member.photoURL} size="md" live={!paused} />
+    <span className="text-xs font-medium truncate max-w-full px-1">{self ? 'You' : member.displayName}</span>
+    <span className={`text-[10px] tracking-wide ${paused ? 'text-text-faint' : 'text-live'}`}>{label}</span>
+    <span className={`text-xs tabular-nums ${paused ? 'text-text-faint' : 'text-live'}`}>{formatDuration(seconds)}</span>
+  </button>
+}
 
 function Chat({ groupId, messages, user, profile }) { const [text, setText] = useState(''); const bottomRef = useRef(null); useEffect(() => { bottomRef.current?.scrollIntoView({ block: 'end' }) }, [messages.length]); async function handleSend() { const trimmed = text.trim(); if (!trimmed) return; setText(''); await sendMessage({ groupId, uid: user.uid, displayName: profile?.displayName || user.displayName, photoURL: profile?.photoURL || user.photoURL, text: trimmed }) } return <div className="flex flex-col animate-fade-in"><div className="flex flex-col gap-4 mb-4 max-h-[50vh] overflow-y-auto no-scrollbar">{messages.length === 0 && <p className="text-text-dim text-sm py-4">No messages yet</p>}{messages.map((m) => <div key={m.id} className={m.uid === user.uid ? 'text-right' : ''}><div className="text-xs text-text-faint mb-1">{m.uid === user.uid ? 'You' : m.displayName} · {m.timestamp ? formatMessageTime(m.timestamp) : ''}</div><div className={`inline-block max-w-[80%] text-sm px-3.5 py-2 rounded-2xl ${m.uid === user.uid ? 'bg-accent text-bg' : 'bg-surface border border-border'}`}>{m.text}</div></div>)}<div ref={bottomRef} /></div><div className="flex items-center gap-2 border-t border-border pt-4"><input value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSend()} placeholder="Message..." maxLength={500} className="flex-1 bg-surface border border-border rounded-xl px-4 py-2.5 text-sm outline-none focus:border-text-faint" /><button onClick={handleSend} aria-label="Send" className="w-10 h-10 rounded-xl bg-accent text-bg flex items-center justify-center shrink-0 active:scale-95 transition-transform disabled:opacity-40" disabled={!text.trim()}><SendIcon /></button></div></div> }
