@@ -107,16 +107,24 @@ export async function createGroup({ uid, displayName, photoURL, name }) {
     code = randomInviteCode()
   }
 
-  const updates = {
+  // Step 1: create the group and add the creator as a member. Committed
+  // to the database before step 2, so the userGroups rule (which checks
+  // that this membership exists) always sees real, already-written data
+  // rather than depending on same-request sibling-write visibility.
+  await update(ref(db), {
     [`groups/${groupId}/name`]: name,
     [`groups/${groupId}/inviteCode`]: code,
     [`groups/${groupId}/createdBy`]: uid,
     [`groups/${groupId}/createdAt`]: serverTimestamp(),
-    [`groups/${groupId}/members/${uid}`]: { displayName, photoURL, joinedAt: serverTimestamp() },
+    [`groups/${groupId}/members/${uid}`]: { displayName, photoURL: photoURL ?? null, joinedAt: serverTimestamp() },
     [`inviteCodes/${code}`]: groupId,
+  })
+
+  // Step 2: index the group under the user now that membership is real.
+  await update(ref(db), {
     [`userGroups/${uid}/${groupId}`]: true,
-  }
-  await update(ref(db), updates)
+  })
+
   return groupId
 }
 
@@ -131,11 +139,14 @@ export async function joinGroupByCode({ uid, displayName, photoURL, code }) {
   if (members[uid]) return { groupId } // already a member
   if (Object.keys(members).length >= MAX_GROUP_SIZE) return { error: 'full' }
 
-  const updates = {
-    [`groups/${groupId}/members/${uid}`]: { displayName, photoURL, joinedAt: serverTimestamp() },
+  // Same two-step ordering as createGroup, for the same reason.
+  await update(ref(db), {
+    [`groups/${groupId}/members/${uid}`]: { displayName, photoURL: photoURL ?? null, joinedAt: serverTimestamp() },
+  })
+  await update(ref(db), {
     [`userGroups/${uid}/${groupId}`]: true,
-  }
-  await update(ref(db), updates)
+  })
+
   return { groupId }
 }
 

@@ -2,29 +2,26 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useMyGroups } from '../hooks/useMyGroups'
-import { createGroup, joinGroupByCode, MAX_GROUP_SIZE } from '../lib/sessions'
+import { createGroup } from '../lib/sessions'
 import Sheet from '../components/Sheet'
 import Button from '../components/Button'
 import { PlusIcon } from '../components/icons'
 
+// Joining is link-only now (see JoinLink.jsx / the Invite button inside a
+// group) — there's no code to type here, so the only thing this "+" does
+// is create a new group.
 export default function Groups() {
   const { user, profile, groupIds } = useAuth()
   const groups = useMyGroups(groupIds)
   const navigate = useNavigate()
 
-  const [menuOpen, setMenuOpen] = useState(false)
-  const [mode, setMode] = useState(null) // 'create' | 'join'
+  const [createOpen, setCreateOpen] = useState(false)
   const [name, setName] = useState('')
-  const [code, setCode] = useState('')
-  const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
   function closeAll() {
-    setMenuOpen(false)
-    setMode(null)
+    setCreateOpen(false)
     setName('')
-    setCode('')
-    setError('')
   }
 
   async function handleCreate() {
@@ -36,23 +33,6 @@ export default function Groups() {
       })
       closeAll()
       navigate(`/groups/${groupId}`)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function handleJoin() {
-    if (!code.trim() || busy) return
-    setBusy(true)
-    setError('')
-    try {
-      const res = await joinGroupByCode({
-        uid: user.uid, displayName: profile?.displayName, photoURL: profile?.photoURL, code: code.trim(),
-      })
-      if (res.error === 'invalid') return setError('Invalid code')
-      if (res.error === 'full') return setError('Group full')
-      closeAll()
-      navigate(`/groups/${res.groupId}`)
     } finally {
       setBusy(false)
     }
@@ -92,21 +72,14 @@ export default function Groups() {
       </div>
 
       <button
-        onClick={() => setMenuOpen(true)}
+        onClick={() => setCreateOpen(true)}
         aria-label="New group"
         className="fixed bottom-28 md:bottom-10 right-6 md:right-10 w-14 h-14 rounded-full bg-accent text-bg flex items-center justify-center shadow-[0_8px_24px_rgba(212,162,76,0.35)] active:scale-95 transition-transform"
       >
         <PlusIcon />
       </button>
 
-      <Sheet open={menuOpen} onClose={closeAll}>
-        <div className="flex flex-col gap-2.5">
-          <Button variant="ghost" className="w-full" onClick={() => setMode('create')}>Create group</Button>
-          <Button variant="ghost" className="w-full" onClick={() => setMode('join')}>Join group</Button>
-        </div>
-      </Sheet>
-
-      <Sheet open={mode === 'create'} onClose={closeAll}>
+      <Sheet open={createOpen} onClose={closeAll}>
         <div className="flex flex-col items-center text-center">
           <div className="text-[13px] tracking-[0.25em] text-text-faint mb-5">GROUP NAME</div>
           <input
@@ -118,24 +91,6 @@ export default function Groups() {
           />
           <Button variant="primary" className="w-full" onClick={handleCreate} disabled={busy || !name.trim()}>
             Create
-          </Button>
-        </div>
-      </Sheet>
-
-      <Sheet open={mode === 'join'} onClose={closeAll}>
-        <div className="flex flex-col items-center text-center">
-          <div className="text-[13px] tracking-[0.25em] text-text-faint mb-5">INVITE CODE</div>
-          <input
-            autoFocus
-            value={code}
-            onChange={(e) => { setCode(e.target.value.toUpperCase().slice(0, 6)); setError('') }}
-            placeholder="J7K92P"
-            className="w-full text-center font-display text-2xl bg-transparent border-b border-border focus:border-accent outline-none pb-3 mb-3 placeholder:text-text-faint/40 tracking-[0.3em]"
-          />
-          {error && <p className="text-danger text-xs mb-5">{error}</p>}
-          {!error && <div className="mb-5" />}
-          <Button variant="primary" className="w-full" onClick={handleJoin} disabled={busy || !code.trim()}>
-            Join
           </Button>
         </div>
       </Sheet>

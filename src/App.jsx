@@ -1,4 +1,4 @@
-import { HashRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { HashRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import BottomNav from './components/BottomNav'
 import SideNav from './components/SideNav'
@@ -7,6 +7,7 @@ import Timer from './pages/Timer'
 import Groups from './pages/Groups'
 import GroupDetail from './pages/GroupDetail'
 import Profile from './pages/Profile'
+import JoinLink from './pages/JoinLink'
 
 function Shell({ children }) {
   return (
@@ -20,12 +21,23 @@ function Shell({ children }) {
 
 function Gate() {
   const { user } = useAuth()
+  const location = useLocation()
 
   if (user === undefined) {
     return (
       <div className="min-h-svh flex items-center justify-center">
         <div className="w-2 h-2 rounded-full bg-accent animate-breathe" />
       </div>
+    )
+  }
+
+  // Invite links work whether or not the person is signed in yet, so this
+  // route is handled outside the normal login gate.
+  if (location.pathname.startsWith('/join/')) {
+    return (
+      <Routes>
+        <Route path="/join/:code" element={<JoinLink />} />
+      </Routes>
     )
   }
 

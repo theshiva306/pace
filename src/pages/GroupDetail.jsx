@@ -71,29 +71,53 @@ export default function GroupDetail() {
       )}
 
       <Sheet open={inviteOpen} onClose={() => setInviteOpen(false)}>
-        <div className="flex flex-col items-center text-center">
-          <div className="text-[13px] tracking-[0.25em] text-text-faint mb-5">INVITE CODE</div>
-          <div className="font-display text-4xl font-semibold tracking-[0.2em] mb-8">
-            {group?.inviteCode}
-          </div>
-          <div className="w-full flex gap-2.5">
-            <Button
-              variant="ghost"
-              className="flex-1"
-              onClick={() => navigator.clipboard?.writeText(group?.inviteCode || '')}
-            >
-              <CopyIcon /> Copy
-            </Button>
-            <Button
-              variant="ghost"
-              className="flex-1"
-              onClick={() => navigator.share?.({ text: `Join my group on Pace: ${group?.inviteCode}` })}
-            >
-              <ShareIcon /> Share
-            </Button>
-          </div>
-        </div>
+        <InviteSheetContent code={group?.inviteCode} />
       </Sheet>
+    </div>
+  )
+}
+
+function InviteSheetContent({ code }) {
+  const [copied, setCopied] = useState(false)
+  // Absolute link that works regardless of the GitHub Pages subpath —
+  // built from the current origin + path, so it never needs a hardcoded
+  // repo name.
+  const link = code
+    ? `${window.location.origin}${window.location.pathname}#/join/${code}`
+    : ''
+
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(link)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1600)
+    } catch {
+      // Clipboard API unavailable — fall back silently, link is still selectable.
+    }
+  }
+
+  function handleShare() {
+    if (navigator.share) {
+      navigator.share({ url: link, text: 'Join my group on Pace' }).catch(() => {})
+    } else {
+      handleCopy()
+    }
+  }
+
+  return (
+    <div className="flex flex-col items-center text-center">
+      <div className="text-[13px] tracking-[0.25em] text-text-faint mb-5">INVITE A FRIEND</div>
+      <div className="w-full bg-elevated border border-border rounded-xl px-4 py-3 mb-6 text-xs text-text-dim break-all">
+        {link}
+      </div>
+      <div className="w-full flex gap-2.5">
+        <Button variant="primary" className="flex-1" onClick={handleCopy}>
+          <CopyIcon /> {copied ? 'Copied' : 'Copy link'}
+        </Button>
+        <Button variant="ghost" className="flex-1" onClick={handleShare}>
+          <ShareIcon /> Share
+        </Button>
+      </div>
     </div>
   )
 }
