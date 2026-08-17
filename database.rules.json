@@ -67,7 +67,7 @@
 
         "memberCount": {
           ".read": "auth != null",
-          ".write": "auth != null && ((newData.val() === 1 && !data.exists() && newData.parent().child('adminUid').val() === auth.uid) || (data.exists() && ((root.child('groups/' + $groupId + '/adminUid').val() === auth.uid) || (newData.val() === data.val() + 1 && newData.parent().child('members/' + auth.uid).exists()) || (newData.val() === data.val() - 1 && !newData.parent().child('members/' + auth.uid).exists()))))",
+          ".write": "auth != null && ((newData.val() === 1 && !data.exists() && newData.parent().child('adminUid').val() === auth.uid) || (data.exists() && ((root.child('groups/' + $groupId + '/adminUid').val() === auth.uid) || (newData.val() === data.val() + 1 && newData.parent().child('members').child(auth.uid).exists()) || (newData.val() === data.val() - 1 && !newData.parent().child('members').child(auth.uid).exists()))))",
           ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 6"
         },
 
