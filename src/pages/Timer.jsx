@@ -207,7 +207,7 @@ export default function Timer() {
       : clock.focusElapsed
 
   return (
-    <div className="h-svh flex flex-col items-center px-6 pt-[calc(env(safe-area-inset-top)+18px)] pb-[calc(env(safe-area-inset-bottom)+104px)] md:pb-14">
+    <div className="h-svh flex flex-col items-center px-6 pt-[calc(env(safe-area-inset-top)+18px)] pb-[calc(env(safe-area-inset-bottom)+28px)] md:pb-10">
       {/* Fixed top row — always the first thing on the page, regardless of
           which state (idle/break/focusing) fills the space below it. */}
       <div className="w-full flex justify-center shrink-0">
@@ -218,27 +218,11 @@ export default function Timer() {
         />
       </div>
 
-      {/* Everything else centers inside whatever vertical space is left,
-          so it can never collide with the top row or get pushed under
-          the bottom nav — and never needs to scroll. */}
-      <div className="flex-1 min-h-0 w-full flex flex-col items-center justify-center gap-9">
+      {/* Ring always centers in whatever vertical space is left between
+          the top row and the bottom action row below. */}
+      <div className="flex-1 min-h-0 w-full flex items-center justify-center">
         {!session && (
-          <div className="flex flex-col items-center w-full">
-            <RingTimer label="READY" displaySeconds={0} totalSeconds={null} isPaused={false} />
-            <button
-              onClick={() => setSetupOpen(true)}
-              className="text-xs text-text-faint mt-7 mb-7 underline decoration-dotted underline-offset-4"
-            >
-              {summaryText}
-            </button>
-            <button
-              onClick={handleMainCta}
-              disabled={busy}
-              className="w-full max-w-xs bg-accent text-bg font-medium text-sm tracking-[0.1em] uppercase rounded-2xl py-4 shadow-[0_0_0_8px_var(--color-accent-soft)] active:scale-[0.98] transition-transform disabled:opacity-40"
-            >
-              Start Focus Now
-            </button>
-          </div>
+          <RingTimer label="READY" displaySeconds={0} totalSeconds={null} isPaused={false} />
         )}
 
         {session && clock.isOnBreak && (
@@ -254,28 +238,50 @@ export default function Timer() {
         )}
 
         {session && !clock.isOnBreak && (
-          <div className="flex flex-col items-center w-full">
-            <RingTimer
-              label={clock.isPaused ? 'PAUSED' : 'FOCUSING'}
-              displaySeconds={displaySeconds}
-              totalSeconds={session.mode === 'countdown' ? session.targetSeconds : null}
-              isPaused={clock.isPaused}
-            >
-              {session.breaksAllowed > 0 && (
-                <RingLink onClick={() => setBreakInfoOpen(true)} disabled={busy || breaksLeft <= 0}>
-                  Take a break
-                </RingLink>
-              )}
-            </RingTimer>
+          <RingTimer
+            label={clock.isPaused ? 'PAUSED' : 'FOCUSING'}
+            displaySeconds={displaySeconds}
+            totalSeconds={session.mode === 'countdown' ? session.targetSeconds : null}
+            isPaused={clock.isPaused}
+          >
+            {session.breaksAllowed > 0 && (
+              <RingLink onClick={() => setBreakInfoOpen(true)} disabled={busy || breaksLeft <= 0}>
+                Take a break
+              </RingLink>
+            )}
+          </RingTimer>
+        )}
+      </div>
 
-            <div className="flex gap-3 w-full max-w-xs mt-8">
-              <Button variant="ghost" className="flex-1" onClick={() => setStopConfirmOpen(true)}>
-                Stop focusing
-              </Button>
-              <Button variant="ghost" className="flex-1" onClick={handleTogglePause} disabled={busy}>
-                {clock.isPaused ? 'Resume' : 'Pause'}
-              </Button>
-            </div>
+      {/* Action row — pinned just above the bottom nav (mobile) / bottom
+          of the window (desktop), never drifting up next to the ring. */}
+      <div className="w-full max-w-xs shrink-0 flex flex-col items-center gap-3 mb-[calc(env(safe-area-inset-bottom)+76px)] md:mb-0">
+        {!session && (
+          <>
+            <button
+              onClick={() => setSetupOpen(true)}
+              className="text-xs text-text-faint underline decoration-dotted underline-offset-4"
+            >
+              {summaryText}
+            </button>
+            <button
+              onClick={handleMainCta}
+              disabled={busy}
+              className="w-full bg-accent text-bg font-medium text-sm tracking-[0.1em] uppercase rounded-2xl py-4 shadow-[0_0_0_8px_var(--color-accent-soft)] active:scale-[0.98] transition-transform disabled:opacity-40"
+            >
+              Start Focus Now
+            </button>
+          </>
+        )}
+
+        {session && !clock.isOnBreak && (
+          <div className="flex gap-3 w-full">
+            <Button variant="ghost" className="flex-1" onClick={() => setStopConfirmOpen(true)}>
+              Stop focusing
+            </Button>
+            <Button variant="ghost" className="flex-1" onClick={handleTogglePause} disabled={busy}>
+              {clock.isPaused ? 'Resume' : 'Pause'}
+            </Button>
           </div>
         )}
       </div>
@@ -448,7 +454,10 @@ function RingTimer({ label, displaySeconds, totalSeconds, isPaused, accent, chil
       className="relative flex items-center justify-center shrink-0"
       style={{ width: 'min(62vw, 52svh, 300px)', aspectRatio: '1' }}
     >
-      <svg viewBox="0 0 100 100" className="absolute inset-0 w-full h-full -rotate-90 overflow-visible">
+      <svg
+        viewBox="0 0 100 100"
+        className="absolute inset-0 w-full h-full -rotate-90 overflow-visible pointer-events-none"
+      >
         <circle cx="50" cy="50" r={r} fill="none" stroke="var(--color-border-soft)" strokeWidth="3" />
         <circle
           cx="50" cy="50" r={r} fill="none"
@@ -459,7 +468,7 @@ function RingTimer({ label, displaySeconds, totalSeconds, isPaused, accent, chil
           className="transition-[stroke-dasharray] duration-500 ease-linear"
         />
       </svg>
-      <div className="flex flex-col items-center justify-center w-[74%] px-1">
+      <div className="relative z-10 flex flex-col items-center justify-center w-[74%] px-1">
         <div className="text-[11px] tracking-[0.28em] text-text-faint mb-2 whitespace-nowrap">
           {label}
         </div>
