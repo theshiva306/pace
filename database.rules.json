@@ -20,6 +20,14 @@
       }
     },
 
+    "userStats": {
+      "$uid": {
+        ".read": "auth != null",
+        ".write": "auth != null && auth.uid === $uid",
+        ".validate": "newData.hasChildren(['weeklyTotals', 'weeklySessionCounts', 'dailyTotals'])"
+      }
+    },
+
     "inviteCodes": {
       "$code": {
         ".read": "auth != null",
@@ -29,7 +37,7 @@
 
     "activeSessions": {
       "$uid": {
-        ".read": "auth != null && auth.uid === $uid",
+        ".read": "auth != null",
         ".write": "auth != null && auth.uid === $uid"
       }
     },
