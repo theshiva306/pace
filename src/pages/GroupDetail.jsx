@@ -2,7 +2,7 @@ import { useState, useMemo, useRef, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useGroup, useWeeklyTotals } from '../hooks/useGroup'
-import { useElapsed } from '../hooks/useElapsed'
+import { useSessionClock } from '../hooks/useSessionClock'
 import { formatDuration, formatClock, formatMessageTime } from '../lib/format'
 import { sendMessage } from '../lib/sessions'
 import { isoWeekId } from '../lib/week'
@@ -167,7 +167,7 @@ function Live({ memberList, live, currentUid }) {
       ) : (
         <div className="grid grid-cols-3 gap-3 mb-8">
           {liveMembers.map((m) => (
-            <LiveTile key={m.uid} member={m} startedAt={live[m.uid]?.startedAt} self={m.uid === currentUid} />
+            <LiveTile key={m.uid} member={m} liveSession={live[m.uid]} self={m.uid === currentUid} />
           ))}
         </div>
       )}
@@ -189,15 +189,18 @@ function Live({ memberList, live, currentUid }) {
   )
 }
 
-function LiveTile({ member, startedAt, self }) {
-  const elapsed = useElapsed(startedAt)
+function LiveTile({ member, liveSession, self }) {
+  const { focusElapsed, isPaused, isOnBreak } = useSessionClock(liveSession)
+  const label = isOnBreak ? 'On break' : isPaused ? 'Paused' : formatClock(focusElapsed)
   return (
     <div className="flex flex-col items-center gap-2 bg-surface border border-border rounded-2xl py-4">
-      <Avatar name={member.displayName} photoURL={member.photoURL} size="md" live />
+      <Avatar name={member.displayName} photoURL={member.photoURL} size="md" live={!isPaused && !isOnBreak} />
       <span className="text-xs font-medium truncate max-w-full px-1">
         {self ? 'You' : member.displayName}
       </span>
-      <span className="text-xs tabular-nums text-live">{formatClock(elapsed)}</span>
+      <span className={`text-xs tabular-nums ${isPaused || isOnBreak ? 'text-text-faint' : 'text-live'}`}>
+        {label}
+      </span>
     </div>
   )
 }

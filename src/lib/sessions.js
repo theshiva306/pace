@@ -17,7 +17,11 @@ export async function getActiveSession(uid) {
 // Starts a session. Mirrors a lightweight "live" pointer into every group
 // the user belongs to, so each group's LIVE view can listen without
 // reading other users' private activeSessions node.
-export async function startSession(uid, groupIds, mode, targetSeconds = null) {
+//
+// breaksAllowed / breakDurationSeconds configure the session's break
+// budget (see startBreak/endBreak below); pausedAt + pausedSeconds track
+// time spent paused/on-break so elapsed math can exclude it.
+export async function startSession(uid, groupIds, mode, targetSeconds = null, breaksAllowed = 0, breakDurationSeconds = 0) {
   const existing = await get(ref(db, `activeSessions/${uid}`))
   if (existing.exists()) return existing.val() // idempotent: never double-start
 
@@ -28,6 +32,11 @@ export async function startSession(uid, groupIds, mode, targetSeconds = null) {
     mode,
     targetSeconds: targetSeconds ?? null,
     status: 'active',
+    pausedAt: null,
+    pausedSeconds: 0,
+    breaksAllowed,
+    breaksTaken: 0,
+    breakDurationSeconds,
   }
 
   const updates = { [`activeSessions/${uid}`]: session }
@@ -37,11 +46,77 @@ export async function startSession(uid, groupIds, mode, targetSeconds = null) {
       startedAt: serverTimestamp(),
       mode,
       targetSeconds: targetSeconds ?? null,
+      status: 'active',
+      pausedAt: null,
+      pausedSeconds: 0,
     }
   }
   await update(ref(db), updates)
   return session
 }
+
+// Generic pause — stops the focus clock without touching the break budget.
+export async function pauseSession(uid, groupIds) {
+  const updates = {
+    [`activeSessions/${uid}/status`]: 'paused',
+    [`activeSessions/${uid}/pausedAt`]: serverTimestamp(),
+  }
+  for (const groupId of groupIds) {
+    updates[`groups/${groupId}/live/${uid}/status`] = 'paused'
+    updates[`groups/${groupId}/live/${uid}/pausedAt`] = serverTimestamp()
+  }
+  await update(ref(db), updates)
+}
+
+// Resumes from a plain pause OR a break, folding the paused span into
+// pausedSeconds so the focus clock keeps excluding it correctly.
+export async function resumeSession(uid, groupIds) {
+  const snap = await get(ref(db, `activeSessions/${uid}`))
+  if (!snap.exists()) return
+  const session = snap.val()
+  if (session.status === 'active' || !session.pausedAt) return
+
+  const spent = Math.max(0, (Date.now() - session.pausedAt) / 1000)
+  const pausedSeconds = (session.pausedSeconds || 0) + spent
+
+  const updates = {
+    [`activeSessions/${uid}/status`]: 'active',
+    [`activeSessions/${uid}/pausedAt`]: null,
+    [`activeSessions/${uid}/pausedSeconds`]: pausedSeconds,
+  }
+  for (const groupId of groupIds) {
+    updates[`groups/${groupId}/live/${uid}/status`] = 'active'
+    updates[`groups/${groupId}/live/${uid}/pausedAt`] = null
+    updates[`groups/${groupId}/live/${uid}/pausedSeconds`] = pausedSeconds
+  }
+  await update(ref(db), updates)
+}
+
+// Starts a break: same pause mechanism as pauseSession, tagged 'onBreak'
+// (so the UI shows a break countdown) and consumes one of the session's
+// allotted breaks. No-ops once the break budget is used up.
+export async function startBreak(uid, groupIds) {
+  const snap = await get(ref(db, `activeSessions/${uid}`))
+  if (!snap.exists()) return
+  const session = snap.val()
+  if (session.status !== 'active') return
+  if ((session.breaksTaken || 0) >= (session.breaksAllowed || 0)) return
+
+  const updates = {
+    [`activeSessions/${uid}/status`]: 'onBreak',
+    [`activeSessions/${uid}/pausedAt`]: serverTimestamp(),
+    [`activeSessions/${uid}/breaksTaken`]: (session.breaksTaken || 0) + 1,
+  }
+  for (const groupId of groupIds) {
+    updates[`groups/${groupId}/live/${uid}/status`] = 'onBreak'
+    updates[`groups/${groupId}/live/${uid}/pausedAt`] = serverTimestamp()
+  }
+  await update(ref(db), updates)
+}
+
+// Ending a break folds the elapsed break time back in exactly like a plain
+// resume — same math, so they share one implementation.
+export const endBreak = resumeSession
 
 // Clears the active session everywhere (used by save + delete).
 export async function clearActiveSession(uid, groupIds) {
