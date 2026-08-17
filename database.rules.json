@@ -6,8 +6,7 @@
     "users": {
       "$uid": {
         ".read": "auth != null",
-        ".write": "auth != null && auth.uid === $uid",
-        ".validate": "newData.hasChildren(['uid', 'displayName', 'createdAt'])"
+        ".write": "auth != null && auth.uid === $uid"
       }
     },
 
@@ -15,7 +14,7 @@
       "$uid": {
         ".read": "auth != null && auth.uid === $uid",
         "$groupId": {
-          ".write": "auth != null && (auth.uid === $uid || root.child('groups/' + $groupId + '/adminUid').val() === auth.uid)",
+          ".write": "auth != null && auth.uid === $uid",
           ".validate": "!newData.exists() || newData.val() === true"
         }
       }
@@ -44,7 +43,7 @@
 
     "groups": {
       "$groupId": {
-        ".read": "auth != null && root.child('groups/' + $groupId + '/members/' + auth.uid).exists()",
+        ".read": "auth != null && (root.child('groups/' + $groupId + '/members/' + auth.uid).exists() || data.child('adminUid').val() === auth.uid)",
         ".write": "auth != null && ((!data.exists() && newData.child('adminUid').val() === auth.uid && newData.child('createdBy').val() === auth.uid && newData.child('members/' + auth.uid).exists()) || (data.exists() && data.child('adminUid').val() === auth.uid && !newData.exists()))",
 
         "name": {
@@ -62,20 +61,14 @@
         },
 
         "adminUid": {
-          ".write": "auth != null && (!data.exists() ? newData.val() === auth.uid : data.val() === auth.uid && (newData.exists() == false || root.child('groups/' + $groupId + '/members/' + newData.val()).exists()))"
-        },
-
-        "memberCount": {
-          ".read": "auth != null",
-          ".write": "auth != null && ((newData.val() === 1 && !data.exists() && newData.parent().child('adminUid').val() === auth.uid) || (data.exists() && ((root.child('groups/' + $groupId + '/adminUid').val() === auth.uid) || (newData.val() === data.val() + 1 && newData.parent().child('members').child(auth.uid).exists()) || (newData.val() === data.val() - 1 && !newData.parent().child('members').child(auth.uid).exists()))))",
-          ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 6"
+          ".write": "auth != null && ((!data.exists() && newData.val() === auth.uid) || (data.exists() && data.val() === auth.uid))"
         },
 
         "members": {
-          ".read": "auth != null",
+          ".read": "auth != null && (root.child('groups/' + $groupId + '/members/' + auth.uid).exists() || root.child('groups/' + $groupId + '/adminUid').val() === auth.uid)",
           "$uid": {
             ".write": "auth != null && (auth.uid === $uid || root.child('groups/' + $groupId + '/adminUid').val() === auth.uid)",
-            ".validate": "newData.hasChildren(['displayName', 'joinedAt'])"
+            ".validate": "!newData.exists() || newData.hasChildren(['displayName', 'joinedAt'])"
           }
         },
 
