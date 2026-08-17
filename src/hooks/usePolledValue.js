@@ -1,13 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ref, get } from 'firebase/database'
+import { ref, get, onValue } from 'firebase/database'
 import { db } from '../firebase'
 
-// Reads an RTDB path once, then re-reads it on a fixed interval and on
-// demand via refresh(). Used anywhere we deliberately don't want the UI
-// to update on every write (group leaderboard / live totals) — it should
-// hold still and only move when refreshed, not flicker mid-focus-session.
+// Kept under the old hook name so existing callers don't need to change.
+// Group data now uses a real-time RTDB subscription instead of polling.
+// refresh() is still available for the existing manual refresh UI.
 export function usePolledValue(path, { intervalMs = 60000, enabled = true } = {}) {
-  const [value, setValue] = useState(undefined) // undefined = first load in flight
+  const [value, setValue] = useState(undefined)
   const [refreshing, setRefreshing] = useState(false)
   const [updatedAt, setUpdatedAt] = useState(null)
   const mountedRef = useRef(true)
@@ -33,10 +32,18 @@ export function usePolledValue(path, { intervalMs = 60000, enabled = true } = {}
 
   useEffect(() => {
     if (!enabled || !path) return
-    refresh()
-    const id = setInterval(refresh, intervalMs)
-    return () => clearInterval(id)
-  }, [path, enabled, intervalMs, refresh])
+
+    const unsubscribe = onValue(ref(db, path), (snap) => {
+      if (!mountedRef.current) return
+      setValue(snap.exists() ? snap.val() : null)
+      setUpdatedAt(Date.now())
+      setRefreshing(false)
+    }, () => {
+      if (mountedRef.current) setRefreshing(false)
+    })
+
+    return unsubscribe
+  }, [path, enabled])
 
   return { value, refresh, refreshing, updatedAt, loading: value === undefined }
 }
