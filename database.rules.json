@@ -62,8 +62,8 @@
         },
         "messages": {
           "$messageId": {
-            ".write": "auth != null && root.child('groups/' + $groupId + '/members/' + auth.uid).exists() && !data.exists() && newData.child('uid').val() === auth.uid",
-            ".validate": "newData.hasChildren(['uid', 'displayName', 'text', 'timestamp']) && newData.child('text').isString() && newData.child('text').val().length > 0 && newData.child('text').val().length <= 500"
+            ".write": "auth != null && root.child('groups/' + $groupId + '/members/' + auth.uid).exists() && ((!data.exists() && newData.exists() && newData.child('uid').val() === auth.uid) || (!newData.exists() && data.child('timestamp').val() <= now - 604800000))",
+            ".validate": "!newData.exists() || (newData.hasChildren(['uid', 'displayName', 'text', 'timestamp']) && newData.child('text').isString() && newData.child('text').val().length > 0 && newData.child('text').val().length <= 500 && newData.child('uid').val() === auth.uid)"
           }
         }
       }
