@@ -31,21 +31,15 @@ export default function GroupDetail() {
   const [removeConfirmUid, setRemoveConfirmUid] = useState(null)
   const [busy, setBusy] = useState(false)
   const week = useMemo(() => weekInfo(weekOffset), [weekOffset])
-
-  // The source of truth for focus data is now each user's own /userStats
-  // and /activeSessions data. The group only owns membership, metadata and chat.
   const { group, members, messages, weekly, sessionCounts, daily, live } = useGroup(groupId, week.weekId, todayId)
-
   const memberList = Object.entries(members).map(([uid, m]) => ({ uid, ...m }))
   const isAdmin = group?.adminUid === user.uid
   const [memberSheetUid, setMemberSheetUid] = useState(null)
   const memberSheetStats = useMemo(() => computeMemberStats(memberList, weekly || {}, sessionCounts || {}, memberSheetUid), [memberList, weekly, sessionCounts, memberSheetUid])
-
   async function handleRename(name) { if (!name.trim() || busy) return; setBusy(true); try { await renameGroup({ groupId, name: name.trim() }) } finally { setBusy(false) } }
   async function handleRemoveMember(targetUid) { if (busy) return; setBusy(true); try { await removeMember({ groupId, targetUid }) } finally { setBusy(false) } }
   async function handleLeave() { if (busy) return; setBusy(true); try { await leaveGroup({ uid: user.uid, groupId }); setLeaveConfirmOpen(false); navigate('/groups') } finally { setBusy(false) } }
   async function handleDelete() { if (busy) return; setBusy(true); try { await deleteGroup({ groupId, memberUids: memberList.map((m) => m.uid) }); setDeleteConfirmOpen(false); navigate('/groups') } finally { setBusy(false) } }
-
   return <div className="min-h-svh px-5 pt-[calc(env(safe-area-inset-top)+20px)] pb-32 max-w-md mx-auto md:max-w-2xl md:pt-14 flex flex-col">
     <div className="flex items-center justify-between mb-4"><button onClick={() => navigate('/groups')} aria-label="Back" className="text-text-dim hover:text-text -ml-1.5 p-1.5"><ChevronLeft /></button><div className="flex items-center gap-2"><button onClick={() => setInviteOpen(true)} className="flex items-center gap-1.5 text-xs font-medium tracking-wide text-live border border-live/30 bg-live-soft rounded-full pl-3 pr-3.5 py-2"><InviteIcon /> Invite friends</button><button onClick={() => setSettingsOpen(true)} aria-label="Group settings" className="text-text-dim hover:text-text p-2 rounded-full border border-border bg-surface"><SettingsIcon /></button></div></div>
     <div className="flex items-center gap-3.5 mb-6"><GroupIcon groupId={groupId} size="md" /><div className="flex-1 min-w-0"><div className="font-display font-semibold tracking-tight uppercase text-lg truncate">{group?.name || '—'}</div><div className="text-xs text-text-faint">{memberList.length} members</div></div></div>
@@ -55,7 +49,7 @@ export default function GroupDetail() {
     {tab === 'Chat' && <Chat groupId={groupId} messages={messages} user={user} profile={profile} />}
     <Sheet open={!!memberSheetUid} onClose={() => setMemberSheetUid(null)}><MemberDetailContent stats={memberSheetStats} self={memberSheetUid === user.uid} /></Sheet>
     <Sheet open={weekPickerOpen} onClose={() => setWeekPickerOpen(false)}><WeekPickerContent selected={weekOffset} onSelect={(offset) => { setWeekOffset(offset); setWeekPickerOpen(false) }} /></Sheet>
-    <Sheet open={inviteOpen} onClose={() => setInviteOpen(false)}><InviteSheetContent code={group?.inviteCode} /></Sheet>
+    <Sheet open={inviteOpen} onClose={() => setInviteOpen(false)}><InviteSheetContent groupId={groupId} /></Sheet>
     <Sheet open={settingsOpen} onClose={() => setSettingsOpen(false)}><SettingsSheetContent group={group} memberList={memberList} currentUid={user.uid} isAdmin={isAdmin} busy={busy} onRename={handleRename} onRemoveMember={handleRemoveMember} onRequestRemove={setRemoveConfirmUid} onRequestLeave={() => { setSettingsOpen(false); setLeaveConfirmOpen(true) }} onRequestDelete={() => { setSettingsOpen(false); setDeleteConfirmOpen(true) }} /></Sheet>
     <Sheet open={leaveConfirmOpen} onClose={() => setLeaveConfirmOpen(false)}><ConfirmSheet title="Leave this group?" subtitle={isAdmin && memberList.length > 1 ? "You're the admin — another member will be promoted to take over." : isAdmin ? "You're the last member — the group will be deleted." : "You'll need a new invite link to rejoin."} confirmLabel="Leave group" busy={busy} onConfirm={handleLeave} onCancel={() => setLeaveConfirmOpen(false)} /></Sheet>
     <Sheet open={deleteConfirmOpen} onClose={() => setDeleteConfirmOpen(false)}><ConfirmSheet title="Delete this group?" subtitle="This removes it for everyone and can't be undone." confirmLabel="Delete group" busy={busy} onConfirm={handleDelete} onCancel={() => setDeleteConfirmOpen(false)} /></Sheet>
@@ -64,115 +58,26 @@ export default function GroupDetail() {
 }
 
 function ConfirmSheet({ title, subtitle, confirmLabel, busy, onConfirm, onCancel }) { return <div className="flex flex-col items-center text-center"><div className="text-base font-medium mb-2">{title}</div><p className="text-xs text-text-faint mb-8">{subtitle}</p><div className="w-full flex flex-col gap-2.5"><Button variant="danger" className="w-full" onClick={onConfirm} disabled={busy}>{confirmLabel}</Button><Button variant="text" className="w-full" onClick={onCancel}>Cancel</Button></div></div> }
-
 function WeekPickerContent({ selected, onSelect }) { const weeks = Array.from({ length: WEEKS_BACK }, (_, i) => weekInfo(i)); return <div className="flex flex-col text-left"><div className="text-[13px] tracking-[0.25em] text-text-faint mb-5 text-center">SELECT WEEK</div><div className="flex flex-col gap-1.5">{weeks.map((w) => <button key={w.weekId} onClick={() => onSelect(w.weeksAgo)} className={`flex items-center justify-between rounded-xl px-4 py-3 text-sm transition-colors ${w.weeksAgo === selected ? 'bg-elevated text-text' : 'text-text-dim hover:bg-elevated/50'}`}><span className="font-medium">{w.label}</span><span className="text-xs text-text-faint">{w.isCurrent ? `Ends in ${w.daysLeft} day${w.daysLeft === 1 ? '' : 's'}` : 'Session ended'}</span></button>)}</div></div> }
-
 function RefreshRow({ label }) { return <div className="mb-4"><div className="text-[13px] tracking-[0.25em] text-text-faint">{label}</div></div> }
-
-function InviteSheetContent({ code }) { const [copied, setCopied] = useState(false); const link = code ? `${window.location.origin}${window.location.pathname}#/join/${code}` : ''; async function handleCopy() { try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1600) } catch {} } function handleShare() { if (navigator.share) navigator.share({ url: link, text: 'Join my group on Pace' }).catch(() => {}); else handleCopy() } return <div className="flex flex-col items-center text-center"><div className="text-[13px] tracking-[0.25em] text-text-faint mb-5">INVITE A FRIEND</div><div className="w-full bg-elevated border border-border rounded-xl px-4 py-3 mb-6 text-xs text-text-dim break-all">{link}</div><div className="w-full flex gap-2.5"><Button variant="primary" className="flex-1" onClick={handleCopy}><CopyIcon /> {copied ? 'Copied' : 'Copy link'}</Button><Button variant="ghost" className="flex-1" onClick={handleShare}><ShareIcon /> Share</Button></div></div> }
-
+function InviteSheetContent({ groupId }) { const [copied, setCopied] = useState(false); const link = groupId ? `${window.location.origin}${window.location.pathname}#/join/${groupId}` : ''; async function handleCopy() { try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1600) } catch {} } function handleShare() { if (navigator.share) navigator.share({ url: link, text: 'Join my group on Pace' }).catch(() => {}); else handleCopy() } return <div className="flex flex-col items-center text-center"><div className="text-[13px] tracking-[0.25em] text-text-faint mb-5">INVITE A FRIEND</div><div className="w-full bg-elevated border border-border rounded-xl px-4 py-3 mb-6 text-xs text-text-dim break-all">{link}</div><div className="w-full flex gap-2.5"><Button variant="primary" className="flex-1" onClick={handleCopy}><CopyIcon /> {copied ? 'Copied' : 'Copy link'}</Button><Button variant="ghost" className="flex-1" onClick={handleShare}><ShareIcon /> Share</Button></div></div> }
 function SettingsSheetContent({ group, memberList, currentUid, isAdmin, busy, onRename, onRemoveMember, onRequestLeave, onRequestDelete, onRequestRemove }) {
   const [name, setName] = useState(group?.name || '')
   useEffect(() => { setName(group?.name || '') }, [group?.name])
   const dirty = !!name.trim() && name.trim() !== group?.name
   const admin = memberList.find((m) => m.uid === group?.adminUid)
   const others = memberList.filter((m) => m.uid !== currentUid)
-
   return <div className="flex flex-col text-left max-h-[78vh] overflow-y-auto no-scrollbar -mx-1">
-    <div className="flex items-center gap-3 px-1 mb-7">
-      <div className="w-10 h-10 rounded-xl bg-elevated border border-border flex items-center justify-center shrink-0"><SettingsIcon width="19" height="19" /></div>
-      <div className="min-w-0"><div className="text-base font-semibold tracking-tight">Group settings</div><div className="text-xs text-text-faint truncate">{group?.name || 'Your group'}</div></div>
-    </div>
-
-    <section className="mb-7">
-      <div className="text-[10px] tracking-[0.22em] text-text-faint mb-3">MEMBERS · {memberList.length}</div>
-      <div className="rounded-2xl border border-border bg-elevated/40 overflow-hidden">
-        {admin && <div className="flex items-center gap-3 px-4 py-3.5 border-b border-border-soft">
-          <Avatar name={admin.displayName} photoURL={admin.photoURL} size="sm" />
-          <div className="flex-1 min-w-0"><div className="text-sm font-medium truncate">{admin.uid === currentUid ? 'You' : admin.displayName}</div><div className="text-[11px] text-text-faint">Group admin</div></div>
-          <span className="text-[9px] tracking-[0.16em] text-accent border border-accent/20 bg-accent/5 rounded-full px-2 py-1">ADMIN</span>
-        </div>}
-        {others.map((m, i) => <div key={m.uid} className={`flex items-center gap-3 px-4 py-3.5 ${i < others.length - 1 ? 'border-b border-border-soft' : ''}`}>
-          <Avatar name={m.displayName} photoURL={m.photoURL} size="sm" />
-          <div className="flex-1 min-w-0"><div className="text-sm truncate">{m.displayName}</div><div className="text-[11px] text-text-faint">Member</div></div>
-          {isAdmin && <button onClick={() => onRequestRemove(m.uid)} disabled={busy} className="text-xs font-medium text-danger px-2 py-1 disabled:opacity-40">Remove</button>}
-        </div>)}
-        {memberList.length === 1 && <div className="px-4 py-4 text-xs text-text-faint">You're the only member here.</div>}
-      </div>
-    </section>
-
-    {isAdmin && <section className="mb-7">
-      <div className="text-[10px] tracking-[0.22em] text-text-faint mb-3">ADMIN</div>
-      <div className="rounded-2xl border border-border bg-elevated/40 overflow-hidden">
-        <div className="px-4 py-4">
-          <label className="text-xs text-text-faint block mb-2">Group name</label>
-          <div className="flex gap-2"><input value={name} onChange={(e) => setName(e.target.value.slice(0, 24))} onKeyDown={(e) => { if (e.key === 'Enter' && dirty) onRename(name) }} className="min-w-0 flex-1 bg-surface border border-border rounded-xl px-3.5 py-2.5 text-sm outline-none focus:border-text-faint" placeholder="Group name" /><Button variant="ghost" onClick={() => onRename(name)} disabled={!dirty || busy}>Save</Button></div>
-        </div>
-        <div className="px-4 py-3.5 border-t border-border-soft text-xs text-text-faint">Only admins can change the group name or remove members.</div>
-      </div>
-    </section>}
-
-    <section className="mb-2 pt-5 border-t border-border-soft">
-      <Button variant="ghost" className="w-full justify-start" onClick={onRequestLeave}><ExitIcon /> Leave group</Button>
-      {isAdmin && <Button variant="danger" className="w-full mt-2 justify-start" onClick={onRequestDelete}><TrashIcon /> Delete group</Button>}
-    </section>
+    <div className="flex items-center gap-3 px-1 mb-7"><div className="w-10 h-10 rounded-xl bg-elevated border border-border flex items-center justify-center shrink-0"><SettingsIcon width="19" height="19" /></div><div className="min-w-0"><div className="text-base font-semibold tracking-tight">Group settings</div><div className="text-xs text-text-faint truncate">{group?.name || 'Your group'}</div></div></div>
+    <section className="mb-7"><div className="text-[10px] tracking-[0.22em] text-text-faint mb-3">MEMBERS · {memberList.length}</div><div className="rounded-2xl border border-border bg-elevated/40 overflow-hidden">{admin && <div className="flex items-center gap-3 px-4 py-3.5 border-b border-border-soft"><Avatar name={admin.displayName} photoURL={admin.photoURL} size="sm" /><div className="flex-1 min-w-0"><div className="text-sm font-medium truncate">{admin.uid === currentUid ? 'You' : admin.displayName}</div><div className="text-[11px] text-text-faint">Group admin</div></div><span className="text-[9px] tracking-[0.16em] text-accent border border-accent/20 bg-accent/5 rounded-full px-2 py-1">ADMIN</span></div>}{others.map((m, i) => <div key={m.uid} className={`flex items-center gap-3 px-4 py-3.5 ${i < others.length - 1 ? 'border-b border-border-soft' : ''}`}><Avatar name={m.displayName} photoURL={m.photoURL} size="sm" /><div className="flex-1 min-w-0"><div className="text-sm truncate">{m.displayName}</div><div className="text-[11px] text-text-faint">Member</div></div>{isAdmin && <button onClick={() => onRequestRemove(m.uid)} disabled={busy} className="text-xs font-medium text-danger px-2 py-1 disabled:opacity-40">Remove</button>}</div>)}{memberList.length === 1 && <div className="px-4 py-4 text-xs text-text-faint">You're the only member here.</div>}</div></section>
+    {isAdmin && <section className="mb-7"><div className="text-[10px] tracking-[0.22em] text-text-faint mb-3">ADMIN</div><div className="rounded-2xl border border-border bg-elevated/40 overflow-hidden"><div className="px-4 py-4"><label className="text-xs text-text-faint block mb-2">Group name</label><div className="flex gap-2"><input value={name} onChange={(e) => setName(e.target.value.slice(0, 24))} onKeyDown={(e) => { if (e.key === 'Enter' && dirty) onRename(name) }} className="min-w-0 flex-1 bg-surface border border-border rounded-xl px-3.5 py-2.5 text-sm outline-none focus:border-text-faint" placeholder="Group name" /><Button variant="ghost" onClick={() => onRename(name)} disabled={!dirty || busy}>Save</Button></div></div><div className="px-4 py-3.5 border-t border-border-soft text-xs text-text-faint">Only admins can change the group name or remove members.</div></div></section>}
+    <section className="mb-2 pt-5 border-t border-border-soft"><Button variant="ghost" className="w-full justify-start" onClick={onRequestLeave}><ExitIcon /> Leave group</Button>{isAdmin && <Button variant="danger" className="w-full mt-2 justify-start" onClick={onRequestDelete}><TrashIcon /> Delete group</Button>}</section>
   </div>
 }
-
 function computeMemberStats(memberList, weeklyTotals, sessionCounts, uid) { if (!uid) return null; const ranked = [...memberList].map((m) => ({ ...m, seconds: weeklyTotals[m.uid] || 0 })).sort((a, b) => b.seconds - a.seconds); const idx = ranked.findIndex((m) => m.uid === uid); if (idx === -1) return null; const m = ranked[idx]; const sessions = sessionCounts[uid] || 0; return { uid: m.uid, displayName: m.displayName, photoURL: m.photoURL, rank: idx + 1, seconds: m.seconds, sessions, avgSeconds: sessions > 0 ? Math.round(m.seconds / sessions) : 0, league: idx < 3 ? LEAGUES[idx] : null } }
-
 function MemberDetailContent({ stats, self }) { if (!stats) return <div className="py-10 text-center text-sm text-text-dim">Loading…</div>; return <div className="flex flex-col items-center text-center"><Avatar name={stats.displayName} photoURL={stats.photoURL} size="lg" className="mb-4" /><div className="text-lg font-semibold mb-2">{self ? 'You' : stats.displayName}</div><div className="flex items-center gap-1.5 text-xs text-text-dim mb-6">{stats.league && <LeagueIcon width="16" height="16" className={stats.league.textClass} />}<span>Rank {stats.rank}</span></div><div className="w-full bg-elevated border border-border rounded-2xl p-5"><div className="text-center pb-4 mb-4 border-b border-border-soft"><div className="text-2xl font-display font-semibold tabular-nums">{formatDuration(stats.seconds)}</div><div className="text-xs text-text-faint mt-1">This week's focus</div></div><div className="flex"><div className="flex-1 text-center"><div className="text-lg font-semibold tabular-nums">{stats.sessions}</div><div className="text-xs text-text-faint mt-1">No. of sessions</div></div><div className="flex-1 text-center border-l border-border-soft"><div className="text-lg font-semibold tabular-nums">{stats.sessions > 0 ? formatDuration(stats.avgSeconds) : '—'}</div><div className="text-xs text-text-faint mt-1">Avg focus per session</div></div></div></div></div> }
-
 const RANK_COLOR = ['text-league-gold', 'text-league-silver', 'text-league-bronze']
-
 function Leaderboard({ memberList, totals, currentUid, week, onOpenWeekPicker, onSelectMember }) { const ranked = [...memberList].map((m) => ({ ...m, seconds: totals[m.uid] || 0 })).sort((a, b) => b.seconds - a.seconds); const mine = leagueStatus(ranked, currentUid, { final: !week.isCurrent }); return <div className="animate-fade-in"><div className="flex items-center justify-between mb-4 gap-3"><button onClick={onOpenWeekPicker} className="flex items-center gap-1.5 text-left"><div><div className="text-sm font-semibold tracking-tight">{week.label}</div><div className="text-[11px] text-text-faint">{week.isCurrent ? `Ends in ${week.daysLeft} day${week.daysLeft === 1 ? '' : 's'}` : 'Session ended'}</div></div><ChevronDown className="text-text-faint mt-2.5" /></button>{mine && <div className="flex items-center gap-2 shrink-0"><LeagueIcon className={mine.textClass} /><div className="text-right"><div className={`text-xs font-semibold tracking-wide ${mine.textClass}`}>{mine.name} league</div><div className="text-[11px] text-text-faint">{mine.detail}</div></div></div>}</div><RefreshRow label="STANDINGS" /><div className="flex flex-col">{ranked.map((m, i) => <button key={m.uid} onClick={() => onSelectMember(m.uid)} className={`flex items-center gap-4 py-3 border-b border-border-soft last:border-0 text-left ${m.uid === currentUid ? 'bg-accent-soft/40 -mx-3 px-3 rounded-xl' : ''}`}><span className="w-7 flex items-center justify-center text-sm text-text-faint tabular-nums">{i < 3 ? <LeagueIcon width="18" height="18" className={RANK_COLOR[i]} /> : i + 1}</span><Avatar name={m.displayName} photoURL={m.photoURL} size="sm" /><span className="flex-1 text-sm font-medium truncate">{m.displayName}</span><span className="text-sm tabular-nums text-text-dim">{formatDuration(m.seconds)}</span></button>)}</div></div> }
-
-// Live keeps the original card/list presentation while using realtime daily user totals.
-export function Live({ memberList, live, totals, currentUid, onSelectMember }) {
-  const liveMembers = memberList.filter((m) => {
-    const status = live[m.uid]?.status
-    return status === 'active' || status === 'paused' || status === 'onBreak'
-  })
-  const idleMembers = memberList.filter((m) => !liveMembers.some((x) => x.uid === m.uid))
-
-  return <div className="animate-fade-in">
-    <RefreshRow label="TODAY" />
-
-    {liveMembers.length === 0 ? (
-      <p className="text-text-dim text-sm py-6">No one studying</p>
-    ) : (
-      <div className="grid grid-cols-3 gap-3 mb-8">
-        {liveMembers.map((m) => {
-          const status = live[m.uid]?.status
-          const paused = status === 'paused' || status === 'onBreak'
-          return <LiveTile key={m.uid} member={m} seconds={totals[m.uid] || 0} self={m.uid === currentUid} paused={paused} status={status} onClick={() => onSelectMember(m.uid)} />
-        })}
-      </div>
-    )}
-
-    {idleMembers.length > 0 && <>
-      <div className="text-[13px] tracking-[0.25em] text-text-faint mb-3">NOT FOCUSING</div>
-      <div className="flex flex-col gap-3">
-        {idleMembers.map((m) => (
-          <button key={m.uid} onClick={() => onSelectMember(m.uid)} className="flex items-center gap-3 text-left w-full">
-            <Avatar name={m.displayName} photoURL={m.photoURL} size="sm" />
-            <span className="text-sm text-text-dim flex-1 truncate">{m.uid === currentUid ? 'You' : m.displayName}</span>
-            <span className="text-xs tabular-nums text-text-faint">{formatDuration(totals[m.uid] || 0)}</span>
-          </button>
-        ))}
-      </div>
-    </>}
-  </div>
-}
-
-function LiveTile({ member, seconds, self, paused, status, onClick }) {
-  const label = paused ? (status === 'onBreak' ? 'BREAK' : 'PAUSED') : 'STUDYING'
-  return <button onClick={onClick} className={`flex flex-col items-center gap-2 bg-surface border border-border rounded-2xl py-4 ${paused ? 'opacity-55' : ''}`}>
-    <Avatar name={member.displayName} photoURL={member.photoURL} size="md" live={!paused} />
-    <span className="text-xs font-medium truncate max-w-full px-1">{self ? 'You' : member.displayName}</span>
-    <span className={`text-[10px] tracking-wide ${paused ? 'text-text-faint' : 'text-live'}`}>{label}</span>
-    <span className={`text-xs tabular-nums ${paused ? 'text-text-faint' : 'text-live'}`}>{formatDuration(seconds)}</span>
-  </button>
-}
-
+export function Live({ memberList, live, totals, currentUid, onSelectMember }) { const liveMembers = memberList.filter((m) => { const status = live[m.uid]?.status; return status === 'active' || status === 'paused' || status === 'onBreak' }); const idleMembers = memberList.filter((m) => !liveMembers.some((x) => x.uid === m.uid)); return <div className="animate-fade-in"><RefreshRow label="TODAY" />{liveMembers.length === 0 ? <p className="text-text-dim text-sm py-6">No one studying</p> : <div className="grid grid-cols-3 gap-3 mb-8">{liveMembers.map((m) => { const status = live[m.uid]?.status; const paused = status === 'paused' || status === 'onBreak'; return <LiveTile key={m.uid} member={m} seconds={totals[m.uid] || 0} self={m.uid === currentUid} paused={paused} status={status} onClick={() => onSelectMember(m.uid)} /> })}</div>}{idleMembers.length > 0 && <><div className="text-[13px] tracking-[0.25em] text-text-faint mb-3">NOT FOCUSING</div><div className="flex flex-col gap-3">{idleMembers.map((m) => <button key={m.uid} onClick={() => onSelectMember(m.uid)} className="flex items-center gap-3 text-left w-full"><Avatar name={m.displayName} photoURL={m.photoURL} size="sm" /><span className="text-sm text-text-dim flex-1 truncate">{m.uid === currentUid ? 'You' : m.displayName}</span><span className="text-xs tabular-nums text-text-faint">{formatDuration(totals[m.uid] || 0)}</span></button>)}</div></>}</div> }
+function LiveTile({ member, seconds, self, paused, status, onClick }) { const label = paused ? (status === 'onBreak' ? 'BREAK' : 'PAUSED') : 'STUDYING'; return <button onClick={onClick} className={`flex flex-col items-center gap-2 bg-surface border border-border rounded-2xl py-4 ${paused ? 'opacity-55' : ''}`}><Avatar name={member.displayName} photoURL={member.photoURL} size="md" live={!paused} /><span className="text-xs font-medium truncate max-w-full px-1">{self ? 'You' : member.displayName}</span><span className={`text-[10px] tracking-wide ${paused ? 'text-text-faint' : 'text-live'}`}>{label}</span><span className={`text-xs tabular-nums ${paused ? 'text-text-faint' : 'text-live'}`}>{formatDuration(seconds)}</span></button> }
 function Chat({ groupId, messages, user, profile }) { const [text, setText] = useState(''); const bottomRef = useRef(null); useEffect(() => { bottomRef.current?.scrollIntoView({ block: 'end' }) }, [messages.length]); async function handleSend() { const trimmed = text.trim(); if (!trimmed) return; setText(''); await sendMessage({ groupId, uid: user.uid, displayName: profile?.displayName || user.displayName, photoURL: profile?.photoURL || user.photoURL, text: trimmed }) } return <div className="flex flex-col animate-fade-in"><div className="flex flex-col gap-4 mb-4 max-h-[50vh] overflow-y-auto no-scrollbar">{messages.length === 0 && <p className="text-text-dim text-sm py-4">No messages yet</p>}{messages.map((m) => <div key={m.id} className={m.uid === user.uid ? 'text-right' : ''}><div className="text-xs text-text-faint mb-1">{m.uid === user.uid ? 'You' : m.displayName} · {m.timestamp ? formatMessageTime(m.timestamp) : ''}</div><div className={`inline-block max-w-[80%] text-sm px-3.5 py-2 rounded-2xl ${m.uid === user.uid ? 'bg-accent text-bg' : 'bg-surface border border-border'}`}>{m.text}</div></div>)}<div ref={bottomRef} /></div><div className="flex items-center gap-2 border-t border-border pt-4"><input value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSend()} placeholder="Message..." maxLength={500} className="flex-1 bg-surface border border-border rounded-xl px-4 py-2.5 text-sm outline-none focus:border-text-faint" /><button onClick={handleSend} aria-label="Send" className="w-10 h-10 rounded-xl bg-accent text-bg flex items-center justify-center shrink-0 active:scale-95 transition-transform disabled:opacity-40" disabled={!text.trim()}><SendIcon /></button></div></div> }
