@@ -4,6 +4,7 @@ import {
 import { db } from '../firebase'
 import { isoWeekId } from './week'
 import { dayId } from './day'
+import { ensureUserStats } from './userStats'
 
 // Default max members per group. Change here to adjust everywhere.
 export const MAX_GROUP_SIZE = 6
@@ -15,16 +16,9 @@ export async function getActiveSession(uid) {
   return snap.exists() ? snap.val() : null
 }
 
-// Starts a session. Mirrors a lightweight "live" pointer into every group
-// the user belongs to, so each group's LIVE view can listen without
-// reading other users' private activeSessions node.
-//
-// breaksAllowed / breakDurationSeconds configure the session's break
-// budget (see startBreak/endBreak below); pausedAt + pausedSeconds track
-// time spent paused/on-break so elapsed math can exclude it.
 export async function startSession(uid, groupIds, mode, targetSeconds = null, breaksAllowed = 0, breakDurationSeconds = 0) {
   const existing = await get(ref(db, `activeSessions/${uid}`))
-  if (existing.exists()) return existing.val() // idempotent: never double-start
+  if (existing.exists()) return existing.val()
 
   const sessionId = push(ref(db, `activeSessions/${uid}`)).key
   const session = {
@@ -56,7 +50,6 @@ export async function startSession(uid, groupIds, mode, targetSeconds = null, br
   return session
 }
 
-// Generic pause — stops the focus clock without touching the break budget.
 export async function pauseSession(uid, groupIds) {
   const updates = {
     [`activeSessions/${uid}/status`]: 'paused',
@@ -69,8 +62,6 @@ export async function pauseSession(uid, groupIds) {
   await update(ref(db), updates)
 }
 
-// Resumes from a plain pause OR a break, folding the paused span into
-// pausedSeconds so the focus clock keeps excluding it correctly.
 export async function resumeSession(uid, groupIds) {
   const snap = await get(ref(db, `activeSessions/${uid}`))
   if (!snap.exists()) return
@@ -93,9 +84,6 @@ export async function resumeSession(uid, groupIds) {
   await update(ref(db), updates)
 }
 
-// Starts a break: same pause mechanism as pauseSession, tagged 'onBreak'
-// (so the UI shows a break countdown) and consumes one of the session's
-// allotted breaks. No-ops once the break budget is used up.
 export async function startBreak(uid, groupIds) {
   const snap = await get(ref(db, `activeSessions/${uid}`))
   if (!snap.exists()) return
@@ -115,11 +103,8 @@ export async function startBreak(uid, groupIds) {
   await update(ref(db), updates)
 }
 
-// Ending a break folds the elapsed break time back in exactly like a plain
-// resume — same math, so they share one implementation.
 export const endBreak = resumeSession
 
-// Clears the active session everywhere (used by save + delete).
 export async function clearActiveSession(uid, groupIds) {
   const updates = { [`activeSessions/${uid}`]: null }
   for (const groupId of groupIds) {
@@ -128,12 +113,9 @@ export async function clearActiveSession(uid, groupIds) {
   await update(ref(db), updates)
 }
 
-// Saves a completed session: records it permanently, adds duration to the
-// weekly leaderboard total (if the user is in a group), then clears the
-// active/live pointers. Idempotent on sessionId so a double-tap or a race
-// after refresh can't double-count. Clearing the active session always
-// runs, even if the earlier writes fail, so a bad write can never leave
-// the timer stuck.
+// The durable source of truth is completedSessions + userStats. Group totals
+// are retained only as a legacy cache for older data; new group pages no
+// longer depend on them.
 export async function saveSession({ uid, groupId, groupIds, session, durationSeconds }) {
   const weekId = isoWeekId()
   const todayId = dayId()
@@ -154,19 +136,18 @@ export async function saveSession({ uid, groupId, groupIds, session, durationSec
           ref(db, `groups/${groupId}/weeklyTotals/${weekId}/${uid}`),
           (current) => (current ?? 0) + durationSeconds,
         )
-        // Session count alongside the weekly total, so the leaderboard can
-        // show "avg focus per session" without re-scanning completedSessions.
         await runTransaction(
           ref(db, `groups/${groupId}/weeklySessionCounts/${weekId}/${uid}`),
           (current) => (current ?? 0) + 1,
         )
-        // Today's total, shown on the group's Live tab — separate from the
-        // weekly leaderboard total above.
         await runTransaction(
           ref(db, `groups/${groupId}/dailyTotals/${todayId}/${uid}`),
           (current) => (current ?? 0) + durationSeconds,
         )
       }
+      // Rebuild from the user's complete private history so this data is
+      // independent of whichever groups the user currently belongs to.
+      await ensureUserStats(uid)
     }
   } finally {
     await clearActiveSession(uid, groupIds)
@@ -180,7 +161,7 @@ export async function deleteSession({ uid, groupIds }) {
 // ---- Groups ----
 
 function randomInviteCode() {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789' // no ambiguous chars
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
   let code = ''
   for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)]
   return code
@@ -190,17 +171,12 @@ export async function createGroup({ uid, displayName, photoURL, name }) {
   const groupRef = push(ref(db, 'groups'))
   const groupId = groupRef.key
   let code = randomInviteCode()
-  // Extremely unlikely collision, but guard anyway.
   for (let i = 0; i < 5; i++) {
     const existing = await get(ref(db, `inviteCodes/${code}`))
     if (!existing.exists()) break
     code = randomInviteCode()
   }
 
-  // Step 1: create the group and add the creator as a member. Committed
-  // to the database before step 2, so the userGroups rule (which checks
-  // that this membership exists) always sees real, already-written data
-  // rather than depending on same-request sibling-write visibility.
   await update(ref(db), {
     [`groups/${groupId}/name`]: name,
     [`groups/${groupId}/inviteCode`]: code,
@@ -211,7 +187,6 @@ export async function createGroup({ uid, displayName, photoURL, name }) {
     [`inviteCodes/${code}`]: groupId,
   })
 
-  // Step 2: index the group under the user now that membership is real.
   await update(ref(db), {
     [`userGroups/${uid}/${groupId}`]: true,
   })
@@ -227,10 +202,9 @@ export async function joinGroupByCode({ uid, displayName, photoURL, code }) {
 
   const membersSnap = await get(ref(db, `groups/${groupId}/members`))
   const members = membersSnap.val() || {}
-  if (members[uid]) return { groupId } // already a member
+  if (members[uid]) return { groupId }
   if (Object.keys(members).length >= MAX_GROUP_SIZE) return { error: 'full' }
 
-  // Same two-step ordering as createGroup, for the same reason.
   await update(ref(db), {
     [`groups/${groupId}/members/${uid}`]: { displayName, photoURL: photoURL ?? null, joinedAt: serverTimestamp() },
   })
@@ -241,11 +215,6 @@ export async function joinGroupByCode({ uid, displayName, photoURL, code }) {
   return { groupId }
 }
 
-// ---- Group settings (admin-managed rename/remove/leave/delete) ----
-
-// Renames a group. Enforced admin-only by the database rules (see
-// database.rules.json), so no client-side gate is needed beyond hiding
-// the control for non-admins in the UI.
 export async function renameGroup({ groupId, name }) {
   await update(ref(db), { [`groups/${groupId}/name`]: name })
 }
@@ -254,9 +223,6 @@ export async function deleteGroup({ groupId, memberUids }) {
   const groupSnap = await get(ref(db, `groups/${groupId}`))
   const group = groupSnap.val() || {}
 
-  // Two steps, in this order: everything that checks "am I the admin?"
-  // has to run while adminUid is still set, so it's cleared last, on its
-  // own, once nothing else depends on it.
   const updates = { [`groups/${groupId}/name`]: null }
   for (const uid of memberUids) {
     updates[`groups/${groupId}/members/${uid}`] = null
@@ -270,8 +236,6 @@ export async function deleteGroup({ groupId, memberUids }) {
   await update(ref(db), { [`groups/${groupId}/adminUid`]: null })
 }
 
-// Admin-only removal of another member. The member themselves leaving
-// uses leaveGroup below instead.
 export async function removeMember({ groupId, targetUid }) {
   await update(ref(db), {
     [`groups/${groupId}/members/${targetUid}`]: null,
@@ -280,10 +244,6 @@ export async function removeMember({ groupId, targetUid }) {
   })
 }
 
-// A member leaving of their own accord. If they're the admin and other
-// members remain, the longest-standing other member is promoted first so
-// the group is never left without one. If they're the last member, the
-// group is deleted outright rather than left empty and admin-less.
 export async function leaveGroup({ uid, groupId }) {
   const [groupSnap, membersSnap] = await Promise.all([
     get(ref(db, `groups/${groupId}`)),
@@ -322,10 +282,6 @@ export async function sendMessage({ groupId, uid, displayName, photoURL, text })
   })
 }
 
-// Pins/unpins the group shown on the Timer page's live pill. Only one
-// group can be pinned at a time — setting a new one silently replaces
-// the old pin. Passing null clears it. Synced via Firebase so it follows
-// the user across devices.
 export async function setPinnedGroup(uid, groupId) {
   await update(ref(db), { [`users/${uid}/pinnedGroupId`]: groupId })
 }
