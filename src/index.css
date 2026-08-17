@@ -101,3 +101,40 @@
 .animate-fade-in {
   animation: fade-in 0.2s ease-out both;
 }
+
+/* Mobile chat: use the visual viewport so Android's keyboard cannot push the
+   composer into the middle of the page or leave a large empty expansion when it closes. */
+#root:has(form[name="pace-group-message"]) .min-h-svh.px-5.pb-32 {
+  height: var(--pace-viewport-height, 100dvh);
+  min-height: var(--pace-viewport-height, 100dvh);
+  padding-bottom: 0 !important;
+  overflow: hidden;
+}
+
+#root:has(form[name="pace-group-message"]) form[name="pace-group-message"] {
+  position: relative;
+  z-index: 5;
+}
+
+#root:has(form[name="pace-group-message"]) form[name="pace-group-message"] input {
+  min-width: 0;
+}
+
+@media (max-width: 767px) {
+  #root:has(form[name="pace-group-message"]) ~ nav.fixed.bottom-0,
+  body:has(form[name="pace-group-message"]) nav.fixed.bottom-0 {
+    display: none;
+  }
+
+  #root:has(form[name="pace-group-message"]) .min-h-svh.px-5.pb-32 {
+    max-width: none;
+    width: 100%;
+    padding-left: 16px;
+    padding-right: 16px;
+    padding-top: calc(env(safe-area-inset-top) + 12px);
+  }
+
+  #root:has(form[name="pace-group-message"]) input[name="pace-group-message"] {
+    font-size: 16px;
+  }
+}
