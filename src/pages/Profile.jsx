@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import { updateDisplayName } from '../lib/sessions'
+import { deletePersonalData, updateDisplayName } from '../lib/sessions'
 import Avatar from '../components/Avatar'
 import Sheet from '../components/Sheet'
 import Button from '../components/Button'
@@ -8,9 +8,10 @@ import Button from '../components/Button'
 export default function Profile() {
   const { user, profile, groupIds, logout } = useAuth()
   const [editOpen, setEditOpen] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
-  const [notifications, setNotifications] = useState(true)
+  const [deleteError, setDeleteError] = useState('')
 
   useEffect(() => {
     if (editOpen) setName(profile?.displayName || '')
@@ -23,6 +24,20 @@ export default function Profile() {
       await updateDisplayName({ uid: user.uid, groupIds, name: name.trim() })
       setEditOpen(false)
     } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleDeleteData() {
+    if (busy) return
+    setBusy(true)
+    setDeleteError('')
+    try {
+      await deletePersonalData(user.uid)
+      await logout()
+    } catch (err) {
+      console.error('Failed to delete personal data', err)
+      setDeleteError('Could not delete your data. Nothing was changed. Please try again.')
       setBusy(false)
     }
   }
@@ -44,16 +59,24 @@ export default function Profile() {
         <Row label="Email" value={user.email || '—'} last />
       </Section>
 
-      <Section title="Settings">
-        <ToggleRow label="Notifications" checked={notifications} onChange={setNotifications} last />
-      </Section>
+      <div className="pt-2">
+        <button
+          onClick={logout}
+          className="w-full text-center text-sm font-medium text-danger py-4"
+        >
+          Sign out
+        </button>
 
-      <button
-        onClick={logout}
-        className="w-full text-center text-sm font-medium text-danger py-4 mt-2"
-      >
-        Sign out
-      </button>
+        <button
+          onClick={() => {
+            setDeleteError('')
+            setDeleteOpen(true)
+          }}
+          className="w-full text-center text-sm font-medium text-danger/70 py-4"
+        >
+          Delete my data
+        </button>
+      </div>
 
       <Sheet open={editOpen} onClose={() => setEditOpen(false)}>
         <div className="flex flex-col items-center text-center">
@@ -67,6 +90,39 @@ export default function Profile() {
           <Button variant="primary" className="w-full" onClick={handleSave} disabled={busy || !name.trim()}>
             Save
           </Button>
+        </div>
+      </Sheet>
+
+      <Sheet open={deleteOpen} onClose={() => !busy && setDeleteOpen(false)}>
+        <div className="text-center">
+          <div className="font-display text-xl font-semibold mb-3">Delete your data?</div>
+          <p className="text-sm leading-6 text-text-dim mb-6">
+            This permanently deletes your Pace timer data, completed sessions, study stats, and profile data.
+            Your groups and group data will not be deleted.
+          </p>
+
+          {deleteError && (
+            <p className="text-sm text-danger mb-4">{deleteError}</p>
+          )}
+
+          <div className="flex gap-3">
+            <Button
+              variant="ghost"
+              className="flex-1"
+              onClick={() => setDeleteOpen(false)}
+              disabled={busy}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              className="flex-1"
+              onClick={handleDeleteData}
+              disabled={busy}
+            >
+              {busy ? 'Deleting…' : 'Delete data'}
+            </Button>
+          </div>
         </div>
       </Sheet>
     </div>
@@ -87,25 +143,6 @@ function Row({ label, value, last }) {
     <div className={`flex items-center justify-between py-4 ${last ? '' : 'border-b border-border-soft'}`}>
       <span className="text-sm text-text-dim">{label}</span>
       <span className="text-sm font-medium truncate max-w-[60%]">{value}</span>
-    </div>
-  )
-}
-
-function ToggleRow({ label, checked, onChange, last }) {
-  return (
-    <div className={`flex items-center justify-between py-4 ${last ? '' : 'border-b border-border-soft'}`}>
-      <span className="text-sm text-text-dim">{label}</span>
-      <button
-        onClick={() => onChange(!checked)}
-        className={`rounded-full transition-colors relative ${checked ? 'bg-accent' : 'bg-elevated border border-border'}`}
-        style={{ height: '26px', width: '44px' }}
-      >
-        <span
-          className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform ${
-            checked ? 'translate-x-[22px]' : 'translate-x-0.5'
-          }`}
-        />
-      </button>
     </div>
   )
 }
