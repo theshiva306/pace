@@ -56,7 +56,7 @@ export default function Timer() {
     try {
       await saveSession({
         uid: user.uid,
-        groupId: groupIds[0],
+        groupId: groupIds[0] ?? null,
         groupIds,
         session: stopped.session,
         durationSeconds: Math.round(stopped.durationSeconds),

@@ -10,7 +10,6 @@ export default function Profile() {
   const [editOpen, setEditOpen] = useState(false)
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
-  const [darkMode, setDarkMode] = useState(true)
   const [notifications, setNotifications] = useState(true)
 
   useEffect(() => {
@@ -46,7 +45,6 @@ export default function Profile() {
       </Section>
 
       <Section title="Settings">
-        <ToggleRow label="Dark mode" checked={darkMode} onChange={setDarkMode} />
         <ToggleRow label="Notifications" checked={notifications} onChange={setNotifications} last />
       </Section>
 

@@ -53,27 +53,34 @@ export async function clearActiveSession(uid, groupIds) {
 }
 
 // Saves a completed session: records it permanently, adds duration to the
-// weekly leaderboard total, then clears the active/live pointers.
-// Idempotent on sessionId so a double-tap or a race after refresh can't
-// double-count.
+// weekly leaderboard total (if the user is in a group), then clears the
+// active/live pointers. Idempotent on sessionId so a double-tap or a race
+// after refresh can't double-count. Clearing the active session always
+// runs, even if the earlier writes fail, so a bad write can never leave
+// the timer stuck.
 export async function saveSession({ uid, groupId, groupIds, session, durationSeconds }) {
   const weekId = isoWeekId()
-  const completedRef = ref(db, `completedSessions/${uid}/${session.sessionId}`)
-  const already = await get(completedRef)
-  if (!already.exists()) {
-    await set(completedRef, {
-      groupId,
-      startedAt: session.startedAt,
-      endedAt: serverTimestamp(),
-      durationSeconds,
-      weekId,
-    })
-    await runTransaction(
-      ref(db, `groups/${groupId}/weeklyTotals/${weekId}/${uid}`),
-      (current) => (current ?? 0) + durationSeconds,
-    )
+  try {
+    const completedRef = ref(db, `completedSessions/${uid}/${session.sessionId}`)
+    const already = await get(completedRef)
+    if (!already.exists()) {
+      await set(completedRef, {
+        groupId: groupId ?? null,
+        startedAt: session.startedAt,
+        endedAt: serverTimestamp(),
+        durationSeconds,
+        weekId,
+      })
+      if (groupId) {
+        await runTransaction(
+          ref(db, `groups/${groupId}/weeklyTotals/${weekId}/${uid}`),
+          (current) => (current ?? 0) + durationSeconds,
+        )
+      }
+    }
+  } finally {
+    await clearActiveSession(uid, groupIds)
   }
-  await clearActiveSession(uid, groupIds)
 }
 
 export async function deleteSession({ uid, groupIds }) {
