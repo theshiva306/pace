@@ -7,7 +7,7 @@ Timer, Groups (leaderboard / live / chat), Profile. Nothing else.
 
 ## Stack
 
-React + Vite + Tailwind CSS v4, Firebase Authentication (Google) + Realtime Database, deployed on Vercel.
+React + Vite + Tailwind CSS v4, Firebase Authentication (Google) + Realtime Database, deployed on GitHub Pages.
 
 ## 1. Create the Firebase project
 
@@ -106,3 +106,7 @@ without reading anyone else's private session.
 - No streaks, XP, badges, planner, notes, or public/global leaderboard — intentionally.
 - Routing uses `HashRouter` (URLs look like `.../#/groups`) instead of `BrowserRouter`, so it
   deploys to GitHub Pages with zero server-side rewrite configuration.
+
+## Group settings UI
+
+Group settings use a compact member list, separate admin controls, confirmation before member removal, and a dedicated leave-group action. Only admins can rename the group, remove members, or delete the group.
