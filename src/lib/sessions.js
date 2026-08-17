@@ -73,14 +73,13 @@ export async function deleteSession({ uid, sessionId }) {
 export async function deletePersonalData(uid) {
   if (!uid) throw new Error('Missing user id')
 
-  // Delete only personal Pace data. Group records and group membership records
-  // are intentionally untouched so deleting personal study history cannot
-  // destroy or alter any group.
+  // Delete personal Pace/study data only. Keep the account profile so the
+  // signed-in user stays in the app after the reset. Group data and group
+  // membership are intentionally untouched.
   await Promise.all([
     remove(ref(db, `activeSessions/${uid}`)),
     remove(ref(db, `completedSessions/${uid}`)),
     remove(ref(db, `userStats/${uid}`)),
-    remove(ref(db, `users/${uid}`)),
   ])
 }
 
