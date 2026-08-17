@@ -30,6 +30,7 @@ export default function GroupDetail() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [leaveConfirmOpen, setLeaveConfirmOpen] = useState(false)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+  const [removeConfirmUid, setRemoveConfirmUid] = useState(null)
   const [busy, setBusy] = useState(false)
   const week = useMemo(() => weekInfo(weekOffset), [weekOffset])
 
@@ -60,9 +61,10 @@ export default function GroupDetail() {
     <Sheet open={!!memberSheetUid} onClose={() => setMemberSheetUid(null)}><MemberDetailContent stats={memberSheetStats} self={memberSheetUid === user.uid} /></Sheet>
     <Sheet open={weekPickerOpen} onClose={() => setWeekPickerOpen(false)}><WeekPickerContent selected={weekOffset} onSelect={(offset) => { setWeekOffset(offset); setWeekPickerOpen(false) }} /></Sheet>
     <Sheet open={inviteOpen} onClose={() => setInviteOpen(false)}><InviteSheetContent code={group?.inviteCode} /></Sheet>
-    <Sheet open={settingsOpen} onClose={() => setSettingsOpen(false)}><SettingsSheetContent group={group} memberList={memberList} currentUid={user.uid} isAdmin={isAdmin} busy={busy} onRename={handleRename} onRemoveMember={handleRemoveMember} onRequestLeave={() => { setSettingsOpen(false); setLeaveConfirmOpen(true) }} onRequestDelete={() => { setSettingsOpen(false); setDeleteConfirmOpen(true) }} /></Sheet>
+    <Sheet open={settingsOpen} onClose={() => setSettingsOpen(false)}><SettingsSheetContent group={group} memberList={memberList} currentUid={user.uid} isAdmin={isAdmin} busy={busy} onRename={handleRename} onRemoveMember={handleRemoveMember} onRequestRemove={setRemoveConfirmUid} onRequestLeave={() => { setSettingsOpen(false); setLeaveConfirmOpen(true) }} onRequestDelete={() => { setSettingsOpen(false); setDeleteConfirmOpen(true) }} /></Sheet>
     <Sheet open={leaveConfirmOpen} onClose={() => setLeaveConfirmOpen(false)}><ConfirmSheet title="Leave this group?" subtitle={isAdmin && memberList.length > 1 ? "You're the admin — another member will be promoted to take over." : isAdmin ? "You're the last member — the group will be deleted." : "You'll need a new invite link to rejoin."} confirmLabel="Leave group" busy={busy} onConfirm={handleLeave} onCancel={() => setLeaveConfirmOpen(false)} /></Sheet>
     <Sheet open={deleteConfirmOpen} onClose={() => setDeleteConfirmOpen(false)}><ConfirmSheet title="Delete this group?" subtitle="This removes it for everyone and can't be undone." confirmLabel="Delete group" busy={busy} onConfirm={handleDelete} onCancel={() => setDeleteConfirmOpen(false)} /></Sheet>
+    <Sheet open={!!removeConfirmUid} onClose={() => setRemoveConfirmUid(null)}><ConfirmSheet title="Remove this member?" subtitle="They will leave this group and will need a new invite to rejoin." confirmLabel="Remove member" busy={busy} onConfirm={async () => { await handleRemoveMember(removeConfirmUid); setRemoveConfirmUid(null) }} onCancel={() => setRemoveConfirmUid(null)} /></Sheet>
   </div>
 }
 
@@ -74,7 +76,53 @@ function RefreshRow({ label }) { return <div className="mb-4"><div className="te
 
 function InviteSheetContent({ code }) { const [copied, setCopied] = useState(false); const link = code ? `${window.location.origin}${window.location.pathname}#/join/${code}` : ''; async function handleCopy() { try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1600) } catch {} } function handleShare() { if (navigator.share) navigator.share({ url: link, text: 'Join my group on Pace' }).catch(() => {}); else handleCopy() } return <div className="flex flex-col items-center text-center"><div className="text-[13px] tracking-[0.25em] text-text-faint mb-5">INVITE A FRIEND</div><div className="w-full bg-elevated border border-border rounded-xl px-4 py-3 mb-6 text-xs text-text-dim break-all">{link}</div><div className="w-full flex gap-2.5"><Button variant="primary" className="flex-1" onClick={handleCopy}><CopyIcon /> {copied ? 'Copied' : 'Copy link'}</Button><Button variant="ghost" className="flex-1" onClick={handleShare}><ShareIcon /> Share</Button></div></div> }
 
-function SettingsSheetContent({ group, memberList, currentUid, isAdmin, busy, onRename, onRemoveMember, onRequestLeave, onRequestDelete }) { const [name, setName] = useState(group?.name || ''); useEffect(() => { setName(group?.name || '') }, [group?.name]); const dirty = name.trim() && name.trim() !== group?.name; return <div className="flex flex-col text-left max-h-[70vh] overflow-y-auto no-scrollbar"><div className="text-[13px] tracking-[0.25em] text-text-faint mb-5 text-center">GROUP SETTINGS</div>{isAdmin && <div className="mb-6"><label className="text-xs text-text-faint mb-2 block">Group name</label><div className="flex gap-2"><input value={name} onChange={(e) => setName(e.target.value.toUpperCase().slice(0, 24))} className="flex-1 bg-elevated border border-border rounded-xl px-3.5 py-2.5 text-sm outline-none focus:border-text-faint uppercase tracking-wide" /><Button variant="ghost" onClick={() => onRename(name)} disabled={!dirty || busy}>Save</Button></div></div>}<div className="mb-6"><label className="text-xs text-text-faint mb-2 block">Members</label><div className="flex flex-col gap-2">{memberList.map((m) => <div key={m.uid} className="flex items-center gap-3 py-1.5"><Avatar name={m.displayName} photoURL={m.photoURL} size="sm" /><span className="flex-1 text-sm truncate">{m.uid === currentUid ? 'You' : m.displayName}{group?.adminUid === m.uid && <span className="ml-2 text-[10px] tracking-wide text-accent align-middle">ADMIN</span>}</span>{isAdmin && m.uid !== currentUid && <button onClick={() => onRemoveMember(m.uid)} disabled={busy} className="text-xs text-danger font-medium disabled:opacity-40">Remove</button>}</div>)}</div></div><div className="flex flex-col gap-2.5 pt-2 border-t border-border-soft"><Button variant="ghost" className="w-full" onClick={onRequestLeave}><ExitIcon /> Leave group</Button>{isAdmin && <Button variant="danger" className="w-full" onClick={onRequestDelete}><TrashIcon /> Delete group</Button>}</div></div> }
+function SettingsSheetContent({ group, memberList, currentUid, isAdmin, busy, onRename, onRemoveMember, onRequestLeave, onRequestDelete, onRequestRemove }) {
+  const [name, setName] = useState(group?.name || '')
+  useEffect(() => { setName(group?.name || '') }, [group?.name])
+  const dirty = !!name.trim() && name.trim() !== group?.name
+  const admin = memberList.find((m) => m.uid === group?.adminUid)
+  const others = memberList.filter((m) => m.uid !== currentUid)
+
+  return <div className="flex flex-col text-left max-h-[78vh] overflow-y-auto no-scrollbar -mx-1">
+    <div className="flex items-center gap-3 px-1 mb-7">
+      <div className="w-10 h-10 rounded-xl bg-elevated border border-border flex items-center justify-center shrink-0"><SettingsIcon width="19" height="19" /></div>
+      <div className="min-w-0"><div className="text-base font-semibold tracking-tight">Group settings</div><div className="text-xs text-text-faint truncate">{group?.name || 'Your group'}</div></div>
+    </div>
+
+    <section className="mb-7">
+      <div className="text-[10px] tracking-[0.22em] text-text-faint mb-3">MEMBERS · {memberList.length}</div>
+      <div className="rounded-2xl border border-border bg-elevated/40 overflow-hidden">
+        {admin && <div className="flex items-center gap-3 px-4 py-3.5 border-b border-border-soft">
+          <Avatar name={admin.displayName} photoURL={admin.photoURL} size="sm" />
+          <div className="flex-1 min-w-0"><div className="text-sm font-medium truncate">{admin.uid === currentUid ? 'You' : admin.displayName}</div><div className="text-[11px] text-text-faint">Group admin</div></div>
+          <span className="text-[9px] tracking-[0.16em] text-accent border border-accent/20 bg-accent/5 rounded-full px-2 py-1">ADMIN</span>
+        </div>}
+        {others.map((m, i) => <div key={m.uid} className={`flex items-center gap-3 px-4 py-3.5 ${i < others.length - 1 ? 'border-b border-border-soft' : ''}`}>
+          <Avatar name={m.displayName} photoURL={m.photoURL} size="sm" />
+          <div className="flex-1 min-w-0"><div className="text-sm truncate">{m.displayName}</div><div className="text-[11px] text-text-faint">Member</div></div>
+          {isAdmin && <button onClick={() => onRequestRemove(m.uid)} disabled={busy} className="text-xs font-medium text-danger px-2 py-1 disabled:opacity-40">Remove</button>}
+        </div>)}
+        {memberList.length === 1 && <div className="px-4 py-4 text-xs text-text-faint">You're the only member here.</div>}
+      </div>
+    </section>
+
+    {isAdmin && <section className="mb-7">
+      <div className="text-[10px] tracking-[0.22em] text-text-faint mb-3">ADMIN</div>
+      <div className="rounded-2xl border border-border bg-elevated/40 overflow-hidden">
+        <div className="px-4 py-4">
+          <label className="text-xs text-text-faint block mb-2">Group name</label>
+          <div className="flex gap-2"><input value={name} onChange={(e) => setName(e.target.value.slice(0, 24))} onKeyDown={(e) => { if (e.key === 'Enter' && dirty) onRename(name) }} className="min-w-0 flex-1 bg-surface border border-border rounded-xl px-3.5 py-2.5 text-sm outline-none focus:border-text-faint" placeholder="Group name" /><Button variant="ghost" onClick={() => onRename(name)} disabled={!dirty || busy}>Save</Button></div>
+        </div>
+        <div className="px-4 py-3.5 border-t border-border-soft text-xs text-text-faint">Only admins can change the group name or remove members.</div>
+      </div>
+    </section>}
+
+    <section className="mb-2 pt-5 border-t border-border-soft">
+      <Button variant="ghost" className="w-full justify-start" onClick={onRequestLeave}><ExitIcon /> Leave group</Button>
+      {isAdmin && <Button variant="danger" className="w-full mt-2 justify-start" onClick={onRequestDelete}><TrashIcon /> Delete group</Button>}
+    </section>
+  </div>
+}
 
 function computeMemberStats(memberList, weeklyTotals, sessionCounts, uid) { if (!uid) return null; const ranked = [...memberList].map((m) => ({ ...m, seconds: weeklyTotals[m.uid] || 0 })).sort((a, b) => b.seconds - a.seconds); const idx = ranked.findIndex((m) => m.uid === uid); if (idx === -1) return null; const m = ranked[idx]; const sessions = sessionCounts[uid] || 0; return { uid: m.uid, displayName: m.displayName, photoURL: m.photoURL, rank: idx + 1, seconds: m.seconds, sessions, avgSeconds: sessions > 0 ? Math.round(m.seconds / sessions) : 0, league: idx < 3 ? LEAGUES[idx] : null } }
 

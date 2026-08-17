@@ -81,13 +81,10 @@ export function PinIcon(props) {
 export function SettingsIcon(props) {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" {...props}>
-      <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.7" />
-      <path
-        d="M12 3.5v2M12 18.5v2M4.9 6.4l1.4 1.4M17.7 16.2l1.4 1.4M3.5 12h2M18.5 12h2M4.9 17.6l1.4-1.4M17.7 7.8l1.4-1.4"
-        stroke="currentColor"
-        strokeWidth="1.7"
-        strokeLinecap="round"
-      />
+      <path d="M6 7h12M6 12h12M6 17h12" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+      <circle cx="9" cy="7" r="1.8" fill="var(--color-bg)" stroke="currentColor" strokeWidth="1.5" />
+      <circle cx="15" cy="12" r="1.8" fill="var(--color-bg)" stroke="currentColor" strokeWidth="1.5" />
+      <circle cx="11" cy="17" r="1.8" fill="var(--color-bg)" stroke="currentColor" strokeWidth="1.5" />
     </svg>
   )
 }
