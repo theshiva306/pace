@@ -1,0 +1,35 @@
+name: Remove manual refresh buttons
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  remove-refresh-ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Remove refresh controls
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p = Path('src/pages/GroupDetail.jsx')
+          s = p.read_text()
+          pattern = r'function RefreshRow\([^\n]*\) \{ return <div className="flex items-center justify-between mb-4">.*?</div> \}'
+          replacement = 'function RefreshRow({ label }) { return <div className="mb-4"><div className="text-[13px] tracking-[0.25em] text-text-faint">{label}</div></div> }'
+          out, n = re.subn(pattern, replacement, s, count=1, flags=re.S)
+          if n != 1:
+              raise SystemExit('RefreshRow function not found; refusing to modify code.')
+          p.write_text(out)
+          PY
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/pages/GroupDetail.jsx
+          git commit -m "Remove manual refresh buttons from Groups"
+          git push
