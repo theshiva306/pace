@@ -27,7 +27,11 @@ export default function JoinLink() {
         if (res.error === 'full') { setError('Group full'); setStatus('error'); return }
         navigate(`/groups/${res.groupId}`, { replace: true })
       })
-      .catch(() => { setError('Something went wrong'); setStatus('error') })
+      .catch((err) => {
+        console.error('joinGroupByCode failed:', err)
+        setError(err?.message || 'Something went wrong')
+        setStatus('error')
+      })
   }, [user, profile, status, code, navigate])
 
   if (user === undefined) {
