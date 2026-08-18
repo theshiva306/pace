@@ -145,12 +145,6 @@ export async function sendMessage({ groupId, uid, displayName, photoURL, text })
   await set(msgRef, { uid, displayName, photoURL: photoURL ?? null, text, timestamp: serverTimestamp() })
 }
 
-// Unsend: only the sender can remove their own message, and only their own
-// (enforced by database.rules.json — this call fails silently for others).
-export async function deleteMessage({ groupId, messageId }) {
-  await remove(ref(db, `groups/${groupId}/messages/${messageId}`))
-}
-
 export async function setPinnedGroup(uid, groupId) { await update(ref(db), { [`users/${uid}/pinnedGroupId`]: groupId }) }
 
 export async function updateDisplayName({ uid, groupIds, name }) {
