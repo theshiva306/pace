@@ -11,6 +11,7 @@ import {
   startSession, pauseSession, resumeSession, startBreak, endBreak, saveSession, clearActiveSession,
 } from '../lib/sessions'
 import { loadTimerSettings, saveTimerSettings } from '../lib/timerSettings'
+import { fireAction } from '../lib/fireAction'
 import { Live } from './GroupDetail'
 import { TimerSkeleton } from '../components/Skeleton'
 import Sheet from '../components/Sheet'
@@ -67,14 +68,14 @@ export default function Timer() {
     if (busy || session) return
     setBusy(true)
     try {
-      await startSession(
+      await fireAction(() => startSession(
         user.uid,
         groupIds,
         s.mode,
         s.mode === 'countdown' ? s.targetSeconds : null,
         s.breaksAllowed,
         s.breakDurationSeconds,
-      )
+      ))
     } finally {
       setBusy(false)
     }
@@ -100,8 +101,8 @@ export default function Timer() {
     if (busy || !session) return
     setBusy(true)
     try {
-      if (clock.isPaused) await resumeSession(user.uid, groupIds)
-      else await pauseSession(user.uid, groupIds)
+      if (clock.isPaused) await fireAction(() => resumeSession(user.uid, groupIds))
+      else await fireAction(() => pauseSession(user.uid, groupIds))
     } finally {
       setBusy(false)
     }
@@ -111,7 +112,7 @@ export default function Timer() {
     if (busy || !session) return
     setBusy(true)
     try {
-      await startBreak(user.uid, groupIds)
+      await fireAction(() => startBreak(user.uid, groupIds))
       setBreakInfoOpen(false)
     } finally {
       setBusy(false)
@@ -122,7 +123,7 @@ export default function Timer() {
     if (busy || !session) return
     setBusy(true)
     try {
-      await endBreak(user.uid, groupIds)
+      await fireAction(() => endBreak(user.uid, groupIds))
     } finally {
       setBusy(false)
     }
@@ -140,7 +141,7 @@ export default function Timer() {
 
     // Too short to be worth saving — just end it, no save screen at all.
     if (durationSeconds < MIN_SAVEABLE_SECONDS) {
-      await clearActiveSession(user.uid, groupIds)
+      await fireAction(() => clearActiveSession(user.uid, groupIds))
       setBuffering(false)
       return
     }
@@ -153,13 +154,13 @@ export default function Timer() {
     if (!stopped || busy) return
     setBusy(true)
     try {
-      await saveSession({
+      await fireAction(() => saveSession({
         uid: user.uid,
         groupId: groupIds[0] ?? null,
         groupIds,
         session: stopped.session,
         durationSeconds: stopped.durationSeconds,
-      })
+      }))
       setStopped(null)
     } finally {
       setBusy(false)
@@ -176,7 +177,7 @@ export default function Timer() {
     setDeleteConfirmOpen(false)
     setBusy(true)
     try {
-      await clearActiveSession(user.uid, groupIds)
+      await fireAction(() => clearActiveSession(user.uid, groupIds))
       setStopped(null)
     } finally {
       setBusy(false)
