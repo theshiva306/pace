@@ -20,11 +20,11 @@ createRoot(document.getElementById('root')).render(
   </StrictMode>,
 )
 
-// Registered after mount, and any failure here is caught and ignored — the
-// service worker only unlocks "Install app"; it should never be able to
-// break the app itself if registration fails for any reason.
+// Registered immediately (not inside a 'load' listener) — on slower mobile
+// connections the window 'load' event can fire before this script finishes
+// downloading and attaches its listener, silently skipping registration.
+// Any failure here is caught and ignored — the service worker only unlocks
+// "Install app"; it should never be able to break the app itself.
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./sw.js').catch(() => {})
-  })
+  navigator.serviceWorker.register('./sw.js').catch(() => {})
 }
