@@ -8,16 +8,6 @@ import { ensureUserStats } from '../lib/userStats'
 
 const AuthContext = createContext(null)
 
-// True popup *windows* don't really exist on mobile browsers — what looks
-// like "a new tab opened instead of a popup" on a phone is the browser
-// itself substituting a full-page context for the popup, not a bug in
-// how we call the API. Detecting that up front and using a redirect flow
-// there instead gives mobile users a single continuous full-page hop that
-// returns automatically, rather than a stray tab they have to notice and
-// switch back from.
-const PREFERS_REDIRECT = typeof navigator !== 'undefined'
-  && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
-
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(undefined) // undefined = loading, null = signed out
   const [profile, setProfile] = useState(null)
@@ -82,14 +72,15 @@ export function AuthProvider({ children }) {
 
   async function login() {
     setAuthError(null)
-    if (PREFERS_REDIRECT) {
-      return signInWithRedirect(auth, googleProvider)
-    }
     try {
+      // Popup works on both desktop and modern mobile browsers, and avoids
+      // the redirect flow's dependency on temporary storage surviving a
+      // full-page trip through Google — storage that phone browsers
+      // (Safari ITP, Chrome storage partitioning, etc.) increasingly block,
+      // which is what caused sign-in to silently fail on phones before.
       await signInWithPopup(auth, googleProvider)
     } catch (err) {
-      // Popup blocked or closed by the OS/browser chrome (common on
-      // desktop Safari with strict popup settings) — fall back to a
+      // Popup blocked or unsupported in this environment — fall back to a
       // redirect rather than leaving the person stuck.
       if (err?.code === 'auth/popup-blocked' || err?.code === 'auth/operation-not-supported-in-this-environment') {
         return signInWithRedirect(auth, googleProvider)
