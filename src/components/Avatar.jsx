@@ -8,7 +8,7 @@ const SIZES = {
   xl: 'w-24 h-24 text-2xl',
 }
 
-export default function Avatar({ name, photoURL, size = 'md', live = false, className = '' }) {
+export default function Avatar({ name, photoURL, size = 'md', live = false, showDot = true, className = '' }) {
   const dim = SIZES[size] || SIZES.md
   const [imageFailed, setImageFailed] = useState(false)
 
@@ -32,7 +32,7 @@ export default function Avatar({ name, photoURL, size = 'md', live = false, clas
           <span>{initials(name)}</span>
         )}
       </div>
-      {live && (
+      {live && showDot && (
         <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-live border-2 border-bg" aria-hidden />
       )}
     </div>
