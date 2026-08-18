@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useGroup } from '../hooks/useGroup'
 import { formatDuration, formatMessageTime, formatDayLabel } from '../lib/format'
-import { sendMessage, renameGroup, removeMember, leaveGroup, deleteGroup } from '../lib/sessions'
+import { sendMessage, deleteMessage, renameGroup, removeMember, leaveGroup, deleteGroup } from '../lib/sessions'
 import { weekInfo } from '../lib/week'
 import { leagueStatus, LEAGUES } from '../lib/league'
 import { dayId } from '../lib/day'
@@ -143,10 +143,13 @@ function Chat({ groupId, messages, user, profile }) {
   const [emojiOpen, setEmojiOpen] = useState(false)
   const [atBottom, setAtBottom] = useState(true)
   const [unseen, setUnseen] = useState(0)
+  const [deleteTarget, setDeleteTarget] = useState(null)
+  const [deleting, setDeleting] = useState(false)
   const scrollRef = useRef(null)
   const bottomRef = useRef(null)
   const inputRef = useRef(null)
   const prevCount = useRef(messages.length)
+  const pressTimer = useRef(null)
 
   const items = useMemo(() => withDayDividers(messages), [messages])
 
@@ -191,6 +194,27 @@ function Chat({ groupId, messages, user, profile }) {
   function scrollToBottom() {
     bottomRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' })
     setUnseen(0)
+  }
+
+  // Long-press (or right-click on desktop) your own bubble to unsend it.
+  function startPress(m) {
+    if (m.uid !== user.uid) return
+    clearTimeout(pressTimer.current)
+    pressTimer.current = setTimeout(() => setDeleteTarget(m), 450)
+  }
+  function cancelPress() {
+    clearTimeout(pressTimer.current)
+  }
+
+  async function handleDeleteMessage() {
+    if (!deleteTarget || deleting) return
+    setDeleting(true)
+    try {
+      await deleteMessage({ groupId, messageId: deleteTarget.id })
+      setDeleteTarget(null)
+    } finally {
+      setDeleting(false)
+    }
   }
 
   function autoGrow(el) {
@@ -286,7 +310,13 @@ function Chat({ groupId, messages, user, profile }) {
                 {!mine && isFirstInRun && (
                   <span className="px-1 mb-0.5 text-[11px] font-medium text-text-faint truncate max-w-full">{m.displayName || 'Member'}</span>
                 )}
-                <div className={`break-words whitespace-pre-wrap rounded-2xl pl-3.5 pr-2.5 py-2.5 text-sm leading-relaxed ${mine ? 'bg-accent text-bg rounded-br-md' : 'bg-surface border border-border text-text rounded-bl-md'}`}>
+                <div
+                  onPointerDown={() => startPress(m)}
+                  onPointerUp={cancelPress}
+                  onPointerLeave={cancelPress}
+                  onContextMenu={(e) => { if (mine) { e.preventDefault(); setDeleteTarget(m) } }}
+                  className={`break-words whitespace-pre-wrap rounded-2xl pl-3.5 pr-2.5 py-2.5 text-sm leading-relaxed select-none ${mine ? 'bg-accent text-bg rounded-br-md' : 'bg-surface border border-border text-text rounded-bl-md'}`}
+                >
                   {m.text}
                   {isLastInRun && (
                     <span className={`float-right whitespace-nowrap select-none mt-1.5 -mb-1 ml-2 text-[10px] tabular-nums ${mine ? 'text-bg/70' : 'text-text-faint'}`}>
@@ -383,6 +413,21 @@ function Chat({ groupId, messages, user, profile }) {
           </button>
         </div>
       </div>
+
+      <Sheet open={!!deleteTarget} onClose={() => setDeleteTarget(null)}>
+        <div className="flex flex-col items-center text-center">
+          <div className="text-base font-medium mb-2">Unsend this message?</div>
+          <p className="text-xs text-text-faint mb-8">It'll be removed for everyone in the group.</p>
+          <div className="w-full flex flex-col gap-2.5">
+            <Button variant="ghost" className="w-full" onClick={handleDeleteMessage} disabled={deleting}>
+              Unsend
+            </Button>
+            <Button variant="text" className="w-full" onClick={() => setDeleteTarget(null)}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      </Sheet>
     </div>
   )
 }
