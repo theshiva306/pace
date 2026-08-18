@@ -8,11 +8,6 @@ import { ensureUserStats } from './userStats'
 
 export const MAX_GROUP_SIZE = 6
 
-export async function getActiveSession(uid) {
-  const snap = await get(ref(db, `activeSessions/${uid}`))
-  return snap.exists() ? snap.val() : null
-}
-
 export async function startSession(uid, _groupIds, mode, targetSeconds = null, breaksAllowed = 0, breakDurationSeconds = 0) {
   const existing = await get(ref(db, `activeSessions/${uid}`))
   if (existing.exists()) return existing.val()

@@ -4,9 +4,13 @@ import { db } from '../firebase'
 import { isoWeekId } from '../lib/week'
 import { dayId } from '../lib/day'
 
-// Legacy-compatible hook. Group study data is now user-owned, so when an
-// existing group path is requested we resolve it through the group's members
-// into userStats/activeSessions instead of reading deleted group-owned totals.
+// Named for its `refresh()`/`refreshing` API (used for pull-to-refresh UX),
+// but for group study paths this is realtime, not polling: it subscribes
+// live via onValue to each member's activeSessions/userStats, and drops a
+// member's subscription the instant they leave the group's members list —
+// so removed/left members disappear from Live immediately, not on a delay.
+// The 1s interval below only recomputes an in-progress session's elapsed
+// time locally (startedAt is fixed; "now" isn't), it does not refetch data.
 export function usePolledValue(path, { intervalMs = 60000, enabled = true } = {}) {
   const [value, setValue] = useState(undefined)
   const [refreshing, setRefreshing] = useState(false)
