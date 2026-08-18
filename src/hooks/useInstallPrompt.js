@@ -20,6 +20,7 @@ function detectBrowser() {
   if (isIOS) return 'ios-safari' // covers Chrome/Firefox on iOS too — Apple forces WebKit
   if (isSafari && !isIOS) return 'mac-safari'
   if (isFirefox) return 'firefox'
+  if (isChromium && isAndroid) return 'android-chromium'
   if (isChromium) return 'chromium'
   return 'other'
 }

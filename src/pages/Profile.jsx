@@ -98,7 +98,11 @@ export default function Profile() {
           >
             <span className="text-sm font-medium">Add to Home Screen</span>
             <span className="text-xs text-accent font-medium">
-              {canPromptInstall ? 'Install' : 'How to'}
+              {canPromptInstall
+                ? 'Install'
+                : browser === 'android-chromium'
+                ? 'Not yet'
+                : 'How to'}
             </span>
           </button>
         </Section>
@@ -150,7 +154,9 @@ export default function Profile() {
 
       <Sheet open={iosOpen} onClose={() => setIosOpen(false)}>
         <div className="text-center">
-          <div className="font-display text-xl font-semibold mb-3">Add to Home Screen</div>
+          <div className="font-display text-xl font-semibold mb-3">
+            {browser === 'android-chromium' ? 'Almost there' : 'Add to Home Screen'}
+          </div>
           <p className="text-sm leading-6 text-text-dim mb-6">
             {INSTALL_INSTRUCTIONS[browser]?.intro}
           </p>
@@ -255,11 +261,19 @@ const INSTALL_INSTRUCTIONS = {
       'Or tap the menu (☰) and choose "Add to Home screen" on Firefox mobile',
     ],
   },
+  'android-chromium': {
+    intro: 'Chrome isn\'t offering the install prompt on this device yet. Chrome decides this itself based on how often you\'ve visited the site recently — it usually appears after a few visits over a couple of days. Come back and check again soon.',
+    steps: [
+      'Keep using Pace normally for a few days',
+      'Then check the ⋮ menu → Add to Home screen → Install app',
+      'Or check back here — this button will switch to "Install" once Chrome offers it',
+    ],
+  },
   chromium: {
     intro: 'Your browser supports installing Pace as an app.',
     steps: [
       'Click the ⋮ menu in the top right',
-      'Select "Install Pace…" (or "Cast, save, and share" → "Install page as app")',
+      'Select "Save and Share" → "Install Pace…"',
       'Confirm to add it to your apps',
     ],
   },
