@@ -157,6 +157,24 @@ function Chat({ groupId, messages, user, profile }) {
     if (nearBottom) setUnseen(0)
   }
 
+  // Keeps the last message pinned just above the composer as the on-screen
+  // keyboard opens/closes. The keyboard resizes window.visualViewport (not
+  // window itself), which is what App.jsx's --pace-viewport-height tracks to
+  // shrink this panel — but shrinking the panel alone doesn't move our
+  // scroll position, so without this the latest message can end up hidden
+  // above the fold instead of sitting right above the input bar.
+  useEffect(() => {
+    const vv = window.visualViewport
+    if (!vv || !atBottom) return
+    const snapToBottom = () => {
+      requestAnimationFrame(() => {
+        bottomRef.current?.scrollIntoView({ block: 'end', behavior: 'auto' })
+      })
+    }
+    vv.addEventListener('resize', snapToBottom)
+    return () => vv.removeEventListener('resize', snapToBottom)
+  }, [atBottom])
+
   function scrollToBottom() {
     bottomRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' })
     setUnseen(0)
@@ -254,14 +272,14 @@ function Chat({ groupId, messages, user, profile }) {
                 {!mine && isFirstInRun && (
                   <span className="px-1 mb-0.5 text-[11px] font-medium text-text-faint truncate max-w-full">{m.displayName || 'Member'}</span>
                 )}
-                <div className={`break-words whitespace-pre-wrap rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${mine ? 'bg-accent text-bg rounded-br-md' : 'bg-surface border border-border text-text rounded-bl-md'}`}>
+                <div className={`break-words whitespace-pre-wrap rounded-2xl pl-3.5 pr-2.5 py-2.5 text-sm leading-relaxed ${mine ? 'bg-accent text-bg rounded-br-md' : 'bg-surface border border-border text-text rounded-bl-md'}`}>
                   {m.text}
+                  {isLastInRun && (
+                    <span className={`float-right whitespace-nowrap select-none mt-1.5 -mb-1 ml-2 text-[10px] tabular-nums ${mine ? 'text-bg/70' : 'text-text-faint'}`}>
+                      {m.timestamp ? formatMessageTime(m.timestamp) : 'Sending…'}
+                    </span>
+                  )}
                 </div>
-                {isLastInRun && (
-                  <span className="px-1 mt-1 text-[10px] text-text-faint tabular-nums">
-                    {m.timestamp ? formatMessageTime(m.timestamp) : 'Sending…'}
-                  </span>
-                )}
               </div>
               {mine && (
                 isLastInRun
@@ -326,6 +344,7 @@ function Chat({ groupId, messages, user, profile }) {
             value={text}
             onChange={(e) => { setText(e.target.value.slice(0, 500)); autoGrow(e.target) }}
             onKeyDown={handleKeyDown}
+            onFocus={() => { if (atBottom) requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ block: 'end', behavior: 'auto' })) }}
             placeholder="Message…"
             maxLength={500}
             rows={1}
