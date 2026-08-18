@@ -102,39 +102,81 @@
   animation: fade-in 0.2s ease-out both;
 }
 
-/* Mobile chat: use the visual viewport so Android's keyboard cannot push the
-   composer into the middle of the page or leave a large empty expansion when it closes. */
-#root:has(form[name="pace-group-message"]) .min-h-svh.px-5.pb-32 {
-  height: var(--pace-viewport-height, 100dvh);
-  min-height: var(--pace-viewport-height, 100dvh);
-  padding-bottom: 0 !important;
-  overflow: hidden;
+/* ---- Glass skeleton loading system ---- */
+@keyframes shimmer-sweep {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(120%); }
 }
-
-#root:has(form[name="pace-group-message"]) form[name="pace-group-message"] {
+.skeleton-shell {
   position: relative;
-  z-index: 5;
+  overflow: hidden;
+  background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02));
+  border: 1px solid var(--color-border-soft);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+.skeleton-shell::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    100deg,
+    transparent 35%,
+    rgba(255,255,255,0.08) 50%,
+    transparent 65%
+  );
+  animation: shimmer-sweep 1.8s ease-in-out infinite;
 }
 
-#root:has(form[name="pace-group-message"]) form[name="pace-group-message"] input {
-  min-width: 0;
+@keyframes mark-orbit {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+.animate-orbit {
+  animation: mark-orbit 2.6s linear infinite;
 }
 
-@media (max-width: 767px) {
-  #root:has(form[name="pace-group-message"]) ~ nav.fixed.bottom-0,
-  body:has(form[name="pace-group-message"]) nav.fixed.bottom-0 {
-    display: none;
-  }
-
-  #root:has(form[name="pace-group-message"]) .min-h-svh.px-5.pb-32 {
-    max-width: none;
-    width: 100%;
-    padding-left: 16px;
-    padding-right: 16px;
-    padding-top: calc(env(safe-area-inset-top) + 12px);
-  }
-
-  #root:has(form[name="pace-group-message"]) input[name="pace-group-message"] {
-    font-size: 16px;
-  }
+@keyframes pulse-soft {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.85; }
 }
+.animate-pulse-soft {
+  animation: pulse-soft 1.6s ease-in-out infinite;
+}
+
+/* ---- Connection banner ---- */
+@keyframes banner-down {
+  from { transform: translateY(-100%); }
+  to { transform: translateY(0); }
+}
+.animate-banner-down {
+  animation: banner-down 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* ---- Login aurora background ---- */
+@keyframes aurora-drift-1 {
+  0%, 100% { transform: translate(-8%, -6%) scale(1); }
+  50% { transform: translate(6%, 4%) scale(1.15); }
+}
+@keyframes aurora-drift-2 {
+  0%, 100% { transform: translate(6%, 4%) scale(1.05); }
+  50% { transform: translate(-8%, -8%) scale(1.2); }
+}
+.animate-aurora-1 {
+  animation: aurora-drift-1 14s ease-in-out infinite;
+}
+.animate-aurora-2 {
+  animation: aurora-drift-2 17s ease-in-out infinite;
+}
+
+@keyframes grain-shift {
+  0%, 100% { transform: translate(0, 0); }
+  50% { transform: translate(-2%, 1%); }
+}
+
+/* Mobile chat: the group-detail root already sizes itself off
+   --pace-viewport-height (set from window.visualViewport in App.jsx) via
+   Tailwind's h-[var(...)] utility, so Android's on-screen keyboard can't
+   push the composer off-screen or leave a gap behind when it closes.
+   The chat message field itself uses text-base (16px) so mobile Safari/
+   Chrome never auto-zooms the page on focus. */

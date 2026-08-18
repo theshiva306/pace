@@ -12,6 +12,7 @@ import {
 } from '../lib/sessions'
 import { loadTimerSettings, saveTimerSettings } from '../lib/timerSettings'
 import { Live } from './GroupDetail'
+import { TimerSkeleton } from '../components/Skeleton'
 import Sheet from '../components/Sheet'
 import Button from '../components/Button'
 import SegmentedControl from '../components/SegmentedControl'
@@ -197,17 +198,16 @@ export default function Timer() {
   }
 
   if (loading) {
-    return (
-      <div className="min-h-svh flex items-center justify-center">
-        <div className="w-2 h-2 rounded-full bg-accent animate-breathe" />
-      </div>
-    )
+    return <TimerSkeleton />
   }
 
   if (buffering) {
     return (
       <div className="min-h-svh flex items-center justify-center">
-        <div className="w-2 h-2 rounded-full bg-accent animate-breathe" />
+        <div className="flex flex-col items-center gap-4 animate-fade-in">
+          <div className="w-2 h-2 rounded-full bg-accent animate-breathe" />
+          <p className="text-xs text-text-faint">Saving session…</p>
+        </div>
       </div>
     )
   }

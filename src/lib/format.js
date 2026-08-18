@@ -19,6 +19,21 @@ export function formatMessageTime(ts) {
   return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
 }
 
+// Groups messages into "Today" / "Yesterday" / weekday / date, mirroring
+// the day dividers used by mainstream chat apps.
+export function formatDayLabel(ts) {
+  const d = new Date(ts)
+  const today = new Date()
+  const yesterday = new Date()
+  yesterday.setDate(today.getDate() - 1)
+  const sameDay = (a, b) => a.toDateString() === b.toDateString()
+  if (sameDay(d, today)) return 'Today'
+  if (sameDay(d, yesterday)) return 'Yesterday'
+  const withinWeek = today - d < 6 * 24 * 60 * 60 * 1000
+  if (withinWeek) return d.toLocaleDateString([], { weekday: 'long' })
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric', year: d.getFullYear() === today.getFullYear() ? undefined : 'numeric' })
+}
+
 export function initials(name = '') {
   return name
     .trim()

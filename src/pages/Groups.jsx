@@ -6,13 +6,14 @@ import { createGroup, setPinnedGroup } from '../lib/sessions'
 import Sheet from '../components/Sheet'
 import Button from '../components/Button'
 import GroupIcon from '../components/GroupIcon'
+import { GroupsListSkeleton, SkelLine } from '../components/Skeleton'
 import { PlusIcon, PinIcon } from '../components/icons'
 
 // Joining is link-only now (see JoinLink.jsx / the Invite button inside a
 // group) — there's no code to type here, so the only thing this "+" does
 // is create a new group.
 export default function Groups() {
-  const { user, profile, groupIds } = useAuth()
+  const { user, profile, groupIds, groupsLoaded } = useAuth()
   const groups = useMyGroups(groupIds)
   const navigate = useNavigate()
 
@@ -59,50 +60,64 @@ export default function Groups() {
     <div className="min-h-svh px-5 pt-[calc(env(safe-area-inset-top)+24px)] pb-32 max-w-md mx-auto md:max-w-2xl md:pt-16">
       <h1 className="font-display text-2xl font-semibold mb-6">Groups</h1>
 
-      {groups.length === 0 && (
+      {!groupsLoaded && <GroupsListSkeleton />}
+
+      {groupsLoaded && groups.length === 0 && (
         <div className="text-center py-20">
           <p className="text-text-dim text-sm">No groups yet</p>
         </div>
       )}
 
-      <div className="flex flex-col gap-3">
-        {groups.map((g) => {
-          const pinned = pinnedGroupId === g.id
-          return (
-            <button
-              key={g.id}
-              onClick={() => navigate(`/groups/${g.id}`)}
-              className="relative flex items-center gap-3.5 text-left bg-surface border border-border rounded-2xl pl-5 pr-14 py-4 hover:border-text-faint transition-colors animate-rise"
-            >
-              <GroupIcon groupId={g.id} size="sm" />
-              <div className="min-w-0">
-                <div className="font-display font-semibold tracking-tight uppercase text-sm mb-1 truncate">
-                  {g.name || '—'}
-                </div>
-                <div className="flex items-center gap-3 text-xs text-text-faint">
-                  <span>{g.memberCount ?? 0} members</span>
-                  {g.liveCount > 0 && (
-                    <span className="flex items-center gap-1.5 text-live">
-                      <span className="w-1.5 h-1.5 rounded-full bg-live" />
-                      {g.liveCount} live
-                    </span>
+      {groupsLoaded && (
+        <div className="flex flex-col gap-3">
+          {groups.map((g) => {
+            const pinned = pinnedGroupId === g.id
+            const rowLoaded = g.name !== undefined
+            return (
+              <button
+                key={g.id}
+                onClick={() => navigate(`/groups/${g.id}`)}
+                className="relative flex items-center gap-3.5 text-left bg-surface border border-border rounded-2xl pl-5 pr-14 py-4 hover:border-text-faint transition-colors animate-rise"
+              >
+                <GroupIcon groupId={g.id} size="sm" />
+                <div className="min-w-0 flex-1">
+                  {rowLoaded ? (
+                    <>
+                      <div className="font-display font-semibold tracking-tight uppercase text-sm mb-1 truncate">
+                        {g.name || '—'}
+                      </div>
+                      <div className="flex items-center gap-3 text-xs text-text-faint">
+                        <span>{g.memberCount ?? 0} members</span>
+                        {g.liveCount > 0 && (
+                          <span className="flex items-center gap-1.5 text-live">
+                            <span className="w-1.5 h-1.5 rounded-full bg-live" />
+                            {g.liveCount} live
+                          </span>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex flex-col gap-2">
+                      <SkelLine width="55%" />
+                      <SkelLine width="35%" className="h-2.5" />
+                    </div>
                   )}
                 </div>
-              </div>
-              <span
-                role="button"
-                aria-label={pinned ? 'Unpin from timer' : 'Pin to timer'}
-                onClick={(e) => handleTogglePin(e, g.id)}
-                className={`absolute top-1/2 -translate-y-1/2 right-4 w-9 h-9 rounded-full flex items-center justify-center transition-colors ${
-                  pinned ? 'text-accent' : 'text-text-faint hover:text-text-dim'
-                }`}
-              >
-                <PinIcon />
-              </span>
-            </button>
-          )
-        })}
-      </div>
+                <span
+                  role="button"
+                  aria-label={pinned ? 'Unpin from timer' : 'Pin to timer'}
+                  onClick={(e) => handleTogglePin(e, g.id)}
+                  className={`absolute top-1/2 -translate-y-1/2 right-4 w-9 h-9 rounded-full flex items-center justify-center transition-colors ${
+                    pinned ? 'text-accent' : 'text-text-faint hover:text-text-dim'
+                  }`}
+                >
+                  <PinIcon />
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      )}
 
       <button
         onClick={() => setCreateOpen(true)}

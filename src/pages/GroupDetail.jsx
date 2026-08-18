@@ -2,13 +2,14 @@ import { useState, useMemo, useRef, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useGroup } from '../hooks/useGroup'
-import { formatDuration, formatMessageTime } from '../lib/format'
+import { formatDuration, formatMessageTime, formatDayLabel } from '../lib/format'
 import { sendMessage, renameGroup, removeMember, leaveGroup, deleteGroup } from '../lib/sessions'
 import { weekInfo } from '../lib/week'
 import { leagueStatus, LEAGUES } from '../lib/league'
 import { dayId } from '../lib/day'
 import Avatar from '../components/Avatar'
 import GroupIcon from '../components/GroupIcon'
+import { GroupHeaderSkeleton } from '../components/Skeleton'
 import Sheet from '../components/Sheet'
 import Button from '../components/Button'
 import { ChevronLeft, ChevronDown, CopyIcon, ShareIcon, SendIcon, SettingsIcon, ExitIcon, TrashIcon, InviteIcon, LeagueIcon } from '../components/icons'
@@ -42,7 +43,7 @@ export default function GroupDetail() {
   async function handleDelete() { if (busy) return; setBusy(true); try { await deleteGroup({ groupId, memberUids: memberList.map((m) => m.uid) }); setDeleteConfirmOpen(false); navigate('/groups') } finally { setBusy(false) } }
   return <div className={`px-5 pt-[calc(env(safe-area-inset-top)+20px)] pb-6 max-w-md mx-auto md:max-w-2xl md:pt-14 flex flex-col ${tab === 'Chat' ? 'h-[var(--pace-viewport-height,100dvh)] min-h-0 overflow-hidden' : 'min-h-svh'}`}> 
     <div className="flex items-center justify-between mb-4"><button onClick={() => navigate('/groups')} aria-label="Back" className="text-text-dim hover:text-text -ml-1.5 p-1.5"><ChevronLeft /></button><div className="flex items-center gap-2"><button onClick={() => setInviteOpen(true)} className="flex items-center gap-1.5 text-xs font-medium tracking-wide text-live border border-live/30 bg-live-soft rounded-full pl-3 pr-3.5 py-2"><InviteIcon /> Invite friends</button><button onClick={() => setSettingsOpen(true)} aria-label="Group settings" className="text-text-dim hover:text-text p-2 rounded-full border border-border bg-surface"><SettingsIcon /></button></div></div>
-    <div className="flex items-center gap-3.5 mb-6"><GroupIcon groupId={groupId} size="md" /><div className="flex-1 min-w-0"><div className="font-display font-semibold tracking-tight uppercase text-lg truncate">{group?.name || '—'}</div><div className="text-xs text-text-faint">{memberList.length} members</div></div></div>
+    {group === undefined ? <GroupHeaderSkeleton /> : <div className="flex items-center gap-3.5 mb-6"><GroupIcon groupId={groupId} size="md" /><div className="flex-1 min-w-0"><div className="font-display font-semibold tracking-tight uppercase text-lg truncate">{group?.name || '—'}</div><div className="text-xs text-text-faint">{memberList.length} members</div></div></div>}
     <div className="flex items-center gap-6 border-b border-border-soft mb-6">{TABS.map((t) => <button key={t} onClick={() => setTab(t)} className={`relative flex items-center gap-1.5 text-xs font-medium tracking-wide py-3 transition-colors ${tab === t ? 'text-text' : 'text-text-faint'}`}>{t === 'Live' && <span className="w-1.5 h-1.5 rounded-full bg-live" aria-hidden />}{t}{tab === t && <span className="absolute left-0 right-0 -bottom-px h-[2px] bg-text rounded-full" />}</button>)}</div>
     {tab === 'Leaderboard' && <Leaderboard memberList={memberList} totals={weekly || {}} currentUid={user.uid} week={week} onOpenWeekPicker={() => setWeekPickerOpen(true)} onSelectMember={setMemberSheetUid} />}
     {tab === 'Live' && <Live memberList={memberList} live={live || {}} totals={daily || {}} currentUid={user.uid} onSelectMember={setMemberSheetUid} />}
@@ -106,21 +107,72 @@ function LiveTile({ member, seconds, self, paused, status, onClick }) { const la
 
 const CHAT_EMOJIS = ['😀','😂','🤣','😊','😍','🥳','😎','😭','😅','😮','😡','❤️','🔥','👍','👏','🙏','💯','✨','🎯','💪','📚','⏱️','🚀','😴','🤝','🙌','💀','🤔','👀','😇','❤️‍🔥','⭐']
 
+// Groups consecutive messages by calendar day so a divider ("Today",
+// "Yesterday", "Monday" …) can be dropped in between, the way every
+// mainstream chat app segments history.
+function withDayDividers(messages) {
+  const out = []
+  let lastLabel = null
+  for (const m of messages) {
+    const label = formatDayLabel(m.timestamp || Date.now())
+    if (label !== lastLabel) {
+      out.push({ kind: 'divider', id: `divider-${m.id}`, label })
+      lastLabel = label
+    }
+    out.push({ kind: 'message', ...m })
+  }
+  return out
+}
+
 function Chat({ groupId, messages, user, profile }) {
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
   const [emojiOpen, setEmojiOpen] = useState(false)
+  const [atBottom, setAtBottom] = useState(true)
+  const [unseen, setUnseen] = useState(0)
+  const scrollRef = useRef(null)
   const bottomRef = useRef(null)
   const inputRef = useRef(null)
+  const prevCount = useRef(messages.length)
+
+  const items = useMemo(() => withDayDividers(messages), [messages])
 
   useEffect(() => {
+    const grew = messages.length > prevCount.current
+    prevCount.current = messages.length
+    if (!grew) return
+    const last = messages[messages.length - 1]
+    if (atBottom || last?.uid === user.uid) {
+      bottomRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' })
+    } else {
+      setUnseen((n) => n + 1)
+    }
+  }, [messages, atBottom, user.uid])
+
+  function handleScroll() {
+    const el = scrollRef.current
+    if (!el) return
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+    setAtBottom(nearBottom)
+    if (nearBottom) setUnseen(0)
+  }
+
+  function scrollToBottom() {
     bottomRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' })
-  }, [messages.length])
+    setUnseen(0)
+  }
+
+  function autoGrow(el) {
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(el.scrollHeight, 116)}px`
+  }
 
   async function handleSend() {
     const trimmed = text.trim()
     if (!trimmed || sending) return
     setText('')
+    requestAnimationFrame(() => autoGrow(inputRef.current))
     setSending(true)
     try {
       await sendMessage({
@@ -131,39 +183,66 @@ function Chat({ groupId, messages, user, profile }) {
         text: trimmed,
       })
       requestAnimationFrame(() => inputRef.current?.focus({ preventScroll: true }))
+    } catch {
+      setText(trimmed)
     } finally {
       setSending(false)
     }
   }
 
+  function handleKeyDown(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      handleSend()
+    }
+  }
+
   function insertEmoji(emoji) {
     const input = inputRef.current
-    if (!input) return
+    if (!input) {
+      setText((value) => (value + emoji).slice(0, 500))
+      return
+    }
     const start = input.selectionStart ?? text.length
     const end = input.selectionEnd ?? text.length
     const next = (text.slice(0, start) + emoji + text.slice(end)).slice(0, 500)
     setText(next)
     requestAnimationFrame(() => {
+      autoGrow(input)
       input.focus({ preventScroll: true })
       const pos = Math.min(start + emoji.length, 500)
       input.setSelectionRange(pos, pos)
     })
   }
 
+  const remaining = 500 - text.length
+  const nearLimit = remaining <= 40
+
   return (
     <div className="relative flex flex-col flex-1 min-h-0 h-full -mx-1 animate-fade-in">
-      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain no-scrollbar pr-0 pb-2 space-y-1">
+      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 min-h-0 overflow-y-auto overscroll-contain no-scrollbar pr-0 pb-2">
         {messages.length === 0 && (
-          <div className="flex h-full min-h-[220px] items-center justify-center text-sm text-text-faint">
-            No messages yet
+          <div className="flex h-full min-h-[220px] flex-col items-center justify-center gap-1 text-center">
+            <div className="text-sm text-text-dim">No messages yet</div>
+            <div className="text-xs text-text-faint">Say hello to the group.</div>
           </div>
         )}
-        {messages.map((m, i) => {
+        {items.map((item, i) => {
+          if (item.kind === 'divider') {
+            return (
+              <div key={item.id} className="flex items-center justify-center py-4 first:pt-1">
+                <span className="text-[10px] font-medium tracking-[0.14em] text-text-faint bg-surface border border-border-soft rounded-full px-3 py-1">
+                  {item.label.toUpperCase()}
+                </span>
+              </div>
+            )
+          }
+          const m = item
+          const prevItem = items[i - 1]
+          const nextItem = items[i + 1]
           const mine = m.uid === user.uid
-          const next = messages[i + 1]
-          const isLastInRun = !next || next.uid !== m.uid
-          const previous = messages[i - 1]
-          const isFirstInRun = !previous || previous.uid !== m.uid
+          const isFirstInRun = !prevItem || prevItem.kind !== 'message' || prevItem.uid !== m.uid
+          const isLastInRun = !nextItem || nextItem.kind !== 'message' || nextItem.uid !== m.uid
           return (
             <div key={m.id} className={`flex w-full items-end gap-2 ${mine ? 'justify-end' : 'justify-start'} ${isFirstInRun ? 'mt-3' : 'mt-0.5'}`}>
               {!mine && (
@@ -171,10 +250,18 @@ function Chat({ groupId, messages, user, profile }) {
                   ? <Avatar name={m.displayName} photoURL={m.photoURL} size="sm" className="mb-0.5" />
                   : <div className="w-8 shrink-0" aria-hidden />
               )}
-              <div className={`flex max-w-[84%] min-w-0 flex-col ${mine ? 'items-end' : 'items-start'}`}>
-                <div className={`break-words whitespace-pre-wrap rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${mine ? 'rounded-br-md bg-accent text-bg' : 'rounded-bl-md bg-surface border border-border text-text'} ${!isLastInRun ? (mine ? 'rounded-br-md' : 'rounded-bl-md') : ''}`}>
+              <div className={`flex max-w-[78%] min-w-0 flex-col ${mine ? 'items-end' : 'items-start'}`}>
+                {!mine && isFirstInRun && (
+                  <span className="px-1 mb-0.5 text-[11px] font-medium text-text-faint truncate max-w-full">{m.displayName || 'Member'}</span>
+                )}
+                <div className={`break-words whitespace-pre-wrap rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${mine ? 'bg-accent text-bg rounded-br-md' : 'bg-surface border border-border text-text rounded-bl-md'}`}>
                   {m.text}
                 </div>
+                {isLastInRun && (
+                  <span className="px-1 mt-1 text-[10px] text-text-faint tabular-nums">
+                    {m.timestamp ? formatMessageTime(m.timestamp) : 'Sending…'}
+                  </span>
+                )}
               </div>
               {mine && (
                 isLastInRun
@@ -186,6 +273,18 @@ function Chat({ groupId, messages, user, profile }) {
         })}
         <div ref={bottomRef} className="h-px" />
       </div>
+
+      {!atBottom && messages.length > 0 && (
+        <button
+          type="button"
+          onClick={scrollToBottom}
+          aria-label="Scroll to latest messages"
+          className="absolute right-2 bottom-[calc(env(safe-area-inset-bottom)+64px)] z-20 flex items-center gap-1.5 rounded-full border border-border bg-surface/95 backdrop-blur-md pl-3 pr-2.5 py-2 text-xs font-medium text-text-dim shadow-lg active:scale-95 transition-transform"
+        >
+          {unseen > 0 ? `${unseen} new` : 'Latest'}
+          <ChevronDown className="rotate-0" />
+        </button>
+      )}
 
       {emojiOpen && (
         <div className="absolute bottom-[calc(env(safe-area-inset-bottom)+68px)] left-0 right-0 z-20 rounded-2xl border border-border bg-surface/98 p-2 shadow-2xl backdrop-blur-md">
@@ -203,44 +302,58 @@ function Chat({ groupId, messages, user, profile }) {
           </div>
         </div>
       )}
-      <form
-        onSubmit={(e) => { e.preventDefault(); handleSend() }}
-        className="sticky bottom-0 z-10 flex items-center gap-2 border-t border-border-soft bg-bg/95 pt-2 pb-[calc(env(safe-area-inset-bottom)+8px)] backdrop-blur-md"
-      >
-        <button
-          type="button"
-          onPointerDown={(e) => e.preventDefault()}
-          onClick={() => { setEmojiOpen((open) => !open); requestAnimationFrame(() => inputRef.current?.focus({ preventScroll: true })) }}
-          aria-label="Emoji"
-          aria-expanded={emojiOpen}
-          className="w-11 h-11 rounded-2xl bg-surface border border-border text-text-dim flex items-center justify-center shrink-0 text-xl active:scale-95 transition-transform"
-        >😊</button>
-        <input
-          ref={inputRef}
-          value={text}
-          onChange={(e) => setText(e.target.value.slice(0, 500))}
-          placeholder="Message..."
-          maxLength={500}
-          name="pace-group-message"
-          autoComplete="off"
-          autoCorrect="off"
-          autoCapitalize="sentences"
-          enterKeyHint="send"
-          spellCheck="false"
-          data-form-type="other"
-          className="min-w-0 flex-1 h-11 bg-surface border border-border rounded-2xl px-4 text-sm outline-none focus:border-text-faint placeholder:text-text-faint"
-        />
-        <button
-          type="button"
-          onPointerDown={(e) => e.preventDefault()}
-          onClick={handleSend}
-          aria-label="Send message"
-          disabled={!text.trim() || sending}
-          className="w-11 h-11 rounded-2xl bg-accent text-bg flex items-center justify-center shrink-0 active:scale-95 transition-transform disabled:opacity-35 disabled:cursor-not-allowed"
-        >
-          <SendIcon />
-        </button>
-      </form>
+
+      {/* Deliberately not a <form>: on Android Chrome, wrapping a text field
+          in a <form> makes the browser treat it as a fillable form and show
+          its password/payment/address autofill accessory bar above the
+          keyboard. A plain container with explicit key + click handlers
+          keeps the exact same UX without that browser chrome. */}
+      <div className="sticky bottom-0 z-10 border-t border-border-soft bg-bg/95 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur-md">
+        {nearLimit && (
+          <div className="px-1 pb-1 text-right text-[10px] tabular-nums text-text-faint">{remaining} characters left</div>
+        )}
+        <div className="flex items-end gap-2">
+          <button
+            type="button"
+            onPointerDown={(e) => e.preventDefault()}
+            onClick={() => { setEmojiOpen((open) => !open); requestAnimationFrame(() => inputRef.current?.focus({ preventScroll: true })) }}
+            aria-label="Emoji"
+            aria-expanded={emojiOpen}
+            className="w-11 h-11 rounded-2xl bg-surface border border-border text-text-dim flex items-center justify-center shrink-0 text-xl active:scale-95 transition-transform"
+          >😊</button>
+          <textarea
+            ref={inputRef}
+            value={text}
+            onChange={(e) => { setText(e.target.value.slice(0, 500)); autoGrow(e.target) }}
+            onKeyDown={handleKeyDown}
+            placeholder="Message…"
+            maxLength={500}
+            rows={1}
+            name="pace-chat-message"
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="sentences"
+            enterKeyHint="send"
+            inputMode="text"
+            spellCheck="false"
+            data-form-type="other"
+            data-lpignore="true"
+            data-1p-ignore=""
+            data-bwignore="true"
+            className="min-w-0 flex-1 resize-none max-h-[116px] bg-surface border border-border rounded-2xl px-4 py-[11px] text-base leading-5 outline-none focus:border-text-faint placeholder:text-text-faint overflow-y-auto no-scrollbar"
+          />
+          <button
+            type="button"
+            onPointerDown={(e) => e.preventDefault()}
+            onClick={handleSend}
+            aria-label="Send message"
+            disabled={!text.trim() || sending}
+            className="w-11 h-11 rounded-2xl bg-accent text-bg flex items-center justify-center shrink-0 active:scale-95 transition-transform disabled:opacity-35 disabled:cursor-not-allowed"
+          >
+            <SendIcon />
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
