@@ -239,6 +239,7 @@ function Chat({ groupId, messages, user, profile }) {
   return (
     <div className="relative flex flex-col flex-1 min-h-0 h-full -mx-1 animate-fade-in">
       <div ref={scrollRef} onScroll={handleScroll} className="flex-1 min-h-0 overflow-y-auto overscroll-contain no-scrollbar pr-0 pb-2">
+        <div className="min-h-full flex flex-col justify-end">
         {messages.length === 0 && (
           <div className="flex h-full min-h-[220px] flex-col items-center justify-center gap-1 text-center">
             <div className="text-sm text-text-dim">No messages yet</div>
@@ -281,15 +282,11 @@ function Chat({ groupId, messages, user, profile }) {
                   )}
                 </div>
               </div>
-              {mine && (
-                isLastInRun
-                  ? <Avatar name={m.displayName || profile?.displayName} photoURL={m.photoURL || profile?.photoURL} size="sm" className="mb-0.5" />
-                  : <div className="w-8 shrink-0" aria-hidden />
-              )}
             </div>
           )
         })}
         <div ref={bottomRef} className="h-px" />
+        </div>
       </div>
 
       {!atBottom && messages.length > 0 && (
