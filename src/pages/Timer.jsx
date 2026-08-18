@@ -8,7 +8,7 @@ import { usePolledValue } from '../hooks/usePolledValue'
 import { formatClock, formatDuration, formatMessageTime } from '../lib/format'
 import { dayId } from '../lib/day'
 import {
-  startSession, pauseSession, resumeSession, startBreak, endBreak, saveSession, deleteSession,
+  startSession, pauseSession, resumeSession, startBreak, endBreak, saveSession, clearActiveSession,
 } from '../lib/sessions'
 import { loadTimerSettings, saveTimerSettings } from '../lib/timerSettings'
 import { Live } from './GroupDetail'
@@ -140,7 +140,7 @@ export default function Timer() {
 
     // Too short to be worth saving — just end it, no save screen at all.
     if (durationSeconds < MIN_SAVEABLE_SECONDS) {
-      await deleteSession({ uid: user.uid, groupIds })
+      await clearActiveSession(user.uid, groupIds)
       setBuffering(false)
       return
     }
@@ -176,7 +176,7 @@ export default function Timer() {
     setDeleteConfirmOpen(false)
     setBusy(true)
     try {
-      await deleteSession({ uid: user.uid, groupIds })
+      await clearActiveSession(user.uid, groupIds)
       setStopped(null)
     } finally {
       setBusy(false)
