@@ -33,18 +33,30 @@ export default function useInstallPrompt() {
   const [browser] = useState(detectBrowser)
 
   useEffect(() => {
+    // Pick up an event that fired before this hook mounted (see main.jsx).
+    if (window.__deferredInstallPrompt) {
+      setDeferredPrompt(window.__deferredInstallPrompt)
+    }
+
+    function onReady() {
+      setDeferredPrompt(window.__deferredInstallPrompt)
+    }
     function onBeforeInstallPrompt(e) {
       e.preventDefault()
+      window.__deferredInstallPrompt = e
       setDeferredPrompt(e)
     }
     function onAppInstalled() {
       setInstalled(true)
+      window.__deferredInstallPrompt = null
       setDeferredPrompt(null)
     }
 
+    window.addEventListener('__installPromptReady', onReady)
     window.addEventListener('beforeinstallprompt', onBeforeInstallPrompt)
     window.addEventListener('appinstalled', onAppInstalled)
     return () => {
+      window.removeEventListener('__installPromptReady', onReady)
       window.removeEventListener('beforeinstallprompt', onBeforeInstallPrompt)
       window.removeEventListener('appinstalled', onAppInstalled)
     }
@@ -56,6 +68,7 @@ export default function useInstallPrompt() {
     if (!deferredPrompt) return null
     deferredPrompt.prompt()
     const choice = await deferredPrompt.userChoice
+    window.__deferredInstallPrompt = null
     setDeferredPrompt(null)
     return choice.outcome // 'accepted' | 'dismissed'
   }
