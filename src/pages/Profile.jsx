@@ -16,12 +16,12 @@ export default function Profile() {
   const [logoutBusy, setLogoutBusy] = useState(false)
   const [deleteError, setDeleteError] = useState('')
   const [deleteSuccess, setDeleteSuccess] = useState(false)
-  const { installed, canPromptInstall, iosManualInstall, promptInstall } = useInstallPrompt()
+  const { installed, canPromptInstall, browser, promptInstall } = useInstallPrompt()
 
   async function handleInstall() {
     if (canPromptInstall) {
       await promptInstall()
-    } else if (iosManualInstall) {
+    } else {
       setIosOpen(true)
     }
   }
@@ -90,7 +90,7 @@ export default function Profile() {
         <Row label="Email" value={user.email || '—'} last />
       </Section>
 
-      {!installed && (canPromptInstall || iosManualInstall) && (
+      {!installed && (
         <Section title="App">
           <button
             onClick={handleInstall}
@@ -152,13 +152,12 @@ export default function Profile() {
         <div className="text-center">
           <div className="font-display text-xl font-semibold mb-3">Add to Home Screen</div>
           <p className="text-sm leading-6 text-text-dim mb-6">
-            iOS requires Safari to install apps — Chrome can't do this on iPhone/iPad.
+            {INSTALL_INSTRUCTIONS[browser]?.intro}
           </p>
           <div className="text-left space-y-4 mb-6">
-            <Step n={1} text="Open this page in Safari" />
-            <Step n={2} text="Tap the Share icon (square with an arrow) in the toolbar" />
-            <Step n={3} text='Scroll down and tap "Add to Home Screen"' />
-            <Step n={4} text='Tap "Add" in the top right' />
+            {(INSTALL_INSTRUCTIONS[browser]?.steps || []).map((text, i) => (
+              <Step key={i} n={i + 1} text={text} />
+            ))}
           </div>
           <Button variant="primary" className="w-full" onClick={() => setIosOpen(false)}>
             Got it
@@ -229,4 +228,46 @@ function Step({ n, text }) {
       <span className="text-sm text-text-dim pt-0.5">{text}</span>
     </div>
   )
+}
+
+const INSTALL_INSTRUCTIONS = {
+  'ios-safari': {
+    intro: 'iOS requires Safari to install apps — even if you\'re using Chrome or another browser right now, switch to Safari first.',
+    steps: [
+      'Open this page in Safari',
+      'Tap the Share icon (square with an arrow) in the toolbar',
+      'Scroll down and tap "Add to Home Screen"',
+      'Tap "Add" in the top right',
+    ],
+  },
+  'mac-safari': {
+    intro: 'Safari on Mac can add Pace to your Dock.',
+    steps: [
+      'Click the Share icon in the toolbar (or File menu)',
+      'Select "Add to Dock"',
+      'Confirm the name and click "Add"',
+    ],
+  },
+  firefox: {
+    intro: 'Firefox doesn\'t support one-tap installs, but you can still pin Pace for quick access.',
+    steps: [
+      'Bookmark this page (Ctrl/Cmd + D)',
+      'Or tap the menu (☰) and choose "Add to Home screen" on Firefox mobile',
+    ],
+  },
+  chromium: {
+    intro: 'Your browser supports installing Pace as an app.',
+    steps: [
+      'Click the ⋮ menu in the top right',
+      'Select "Install Pace…" (or "Cast, save, and share" → "Install page as app")',
+      'Confirm to add it to your apps',
+    ],
+  },
+  other: {
+    intro: 'Look for an "Install app" or "Add to Home Screen" option in your browser\'s menu.',
+    steps: [
+      'Open your browser\'s menu',
+      'Look for "Install app", "Add to Home Screen", or "Pin to…"',
+    ],
+  },
 }
