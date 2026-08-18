@@ -16,6 +16,20 @@ export default function GroupChat({ groupId, messages, user, profile }) {
     bottomRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' })
   }, [messages.length])
 
+  useEffect(() => {
+    const viewport = window.visualViewport
+    if (!viewport) return
+    const updateViewport = () => document.documentElement.style.setProperty('--pace-chat-vh', `${viewport.height}px`)
+    updateViewport()
+    viewport.addEventListener('resize', updateViewport)
+    viewport.addEventListener('scroll', updateViewport)
+    return () => {
+      viewport.removeEventListener('resize', updateViewport)
+      viewport.removeEventListener('scroll', updateViewport)
+      document.documentElement.style.removeProperty('--pace-chat-vh')
+    }
+  }, [])
+
   async function handleSend() {
     const trimmed = text.trim()
     if (!trimmed || sending) return
@@ -63,8 +77,8 @@ export default function GroupChat({ groupId, messages, user, profile }) {
   }
 
   return (
-    <section className="flex flex-col min-h-0 h-[calc(100dvh-220px)] md:h-[calc(100dvh-250px)] animate-fade-in">
-      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain pr-1 -mr-1 no-scrollbar">
+    <section className="flex flex-col min-h-0 flex-1 min-w-0" style={{ minHeight: '0', height: 'var(--pace-chat-vh, 100dvh)' }}>
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain pr-0 no-scrollbar">
         <div className="flex flex-col gap-2.5 py-1">
           {messages.length === 0 && (
             <div className="flex flex-col items-center justify-center py-16 text-center">
@@ -88,7 +102,7 @@ export default function GroupChat({ groupId, messages, user, profile }) {
         </div>
       </div>
 
-      <div className="sticky bottom-0 z-10 pt-3 pb-[max(0.25rem,env(safe-area-inset-bottom))] bg-bg/95 backdrop-blur-md">
+      <div className="shrink-0 z-10 pt-2 pb-[max(0.25rem,env(safe-area-inset-bottom))] bg-bg/95 backdrop-blur-md">
         <div className="relative">
           {emojiOpen && (
             <div className="absolute bottom-full left-0 right-0 mb-2 rounded-2xl border border-border bg-surface p-2.5 shadow-xl z-20">
@@ -105,7 +119,7 @@ export default function GroupChat({ groupId, messages, user, profile }) {
             <button type="button" aria-label="Open emoji picker" aria-expanded={emojiOpen} onPointerDown={(e) => e.preventDefault()} onClick={() => setEmojiOpen((open) => !open)} className="w-10 h-10 shrink-0 rounded-xl flex items-center justify-center text-xl hover:bg-elevated active:scale-95 transition-all">
               😊
             </button>
-            <textarea ref={inputRef} value={text} onChange={(e) => setText(e.target.value.slice(0, 500))} onKeyDown={handleKeyDown} placeholder="Message..." maxLength={500} rows={1} enterKeyHint="send" autoComplete="off" autoCorrect="on" spellCheck className="min-w-0 flex-1 resize-none bg-transparent px-2.5 py-2 text-[16px] md:text-sm leading-5 outline-none placeholder:text-text-faint max-h-24 overflow-y-auto" />
+            <textarea ref={inputRef} value={text} onChange={(e) => setText(e.target.value.slice(0, 500))} onKeyDown={handleKeyDown} placeholder="Message..." maxLength={500} rows={1} enterKeyHint="send" inputMode="text" name="pace-message" autoComplete="off" autoCorrect="on" autoCapitalize="sentences" spellCheck className="min-w-0 flex-1 resize-none bg-transparent px-2.5 py-2 text-[16px] md:text-sm leading-5 outline-none placeholder:text-text-faint max-h-24 overflow-y-auto" />
             <button type="button" onPointerDown={(e) => e.preventDefault()} onClick={handleSend} aria-label="Send message" disabled={!text.trim() || sending} className="w-10 h-10 shrink-0 rounded-xl bg-accent text-bg flex items-center justify-center active:scale-95 transition-all duration-150 disabled:opacity-35 disabled:active:scale-100">
               <SendIcon />
             </button>
