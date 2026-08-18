@@ -40,7 +40,7 @@ export default function GroupDetail() {
   async function handleRemoveMember(targetUid) { if (busy) return; setBusy(true); try { await removeMember({ groupId, targetUid }) } finally { setBusy(false) } }
   async function handleLeave() { if (busy) return; setBusy(true); try { await leaveGroup({ uid: user.uid, groupId }); setLeaveConfirmOpen(false); navigate('/groups') } finally { setBusy(false) } }
   async function handleDelete() { if (busy) return; setBusy(true); try { await deleteGroup({ groupId, memberUids: memberList.map((m) => m.uid) }); setDeleteConfirmOpen(false); navigate('/groups') } finally { setBusy(false) } }
-  return <div className="min-h-svh px-5 pt-[calc(env(safe-area-inset-top)+20px)] pb-6 max-w-md mx-auto md:max-w-2xl md:pt-14 flex flex-col">
+  return <div className={`px-5 pt-[calc(env(safe-area-inset-top)+20px)] pb-6 max-w-md mx-auto md:max-w-2xl md:pt-14 flex flex-col ${tab === 'Chat' ? 'h-[var(--pace-viewport-height,100dvh)] min-h-0 overflow-hidden' : 'min-h-svh'}`}> 
     <div className="flex items-center justify-between mb-4"><button onClick={() => navigate('/groups')} aria-label="Back" className="text-text-dim hover:text-text -ml-1.5 p-1.5"><ChevronLeft /></button><div className="flex items-center gap-2"><button onClick={() => setInviteOpen(true)} className="flex items-center gap-1.5 text-xs font-medium tracking-wide text-live border border-live/30 bg-live-soft rounded-full pl-3 pr-3.5 py-2"><InviteIcon /> Invite friends</button><button onClick={() => setSettingsOpen(true)} aria-label="Group settings" className="text-text-dim hover:text-text p-2 rounded-full border border-border bg-surface"><SettingsIcon /></button></div></div>
     <div className="flex items-center gap-3.5 mb-6"><GroupIcon groupId={groupId} size="md" /><div className="flex-1 min-w-0"><div className="font-display font-semibold tracking-tight uppercase text-lg truncate">{group?.name || '—'}</div><div className="text-xs text-text-faint">{memberList.length} members</div></div></div>
     <div className="flex items-center gap-6 border-b border-border-soft mb-6">{TABS.map((t) => <button key={t} onClick={() => setTab(t)} className={`relative flex items-center gap-1.5 text-xs font-medium tracking-wide py-3 transition-colors ${tab === t ? 'text-text' : 'text-text-faint'}`}>{t === 'Live' && <span className="w-1.5 h-1.5 rounded-full bg-live" aria-hidden />}{t}{tab === t && <span className="absolute left-0 right-0 -bottom-px h-[2px] bg-text rounded-full" />}</button>)}</div>
@@ -151,7 +151,7 @@ function Chat({ groupId, messages, user, profile }) {
   }
 
   return (
-    <div className="relative flex flex-col flex-1 min-h-0 -mx-1 animate-fade-in">
+    <div className="relative flex flex-col flex-1 min-h-0 h-full -mx-1 animate-fade-in">
       <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain no-scrollbar pr-0 pb-2 space-y-1">
         {messages.length === 0 && (
           <div className="flex h-full min-h-[220px] items-center justify-center text-sm text-text-faint">
@@ -223,10 +223,11 @@ function Chat({ groupId, messages, user, profile }) {
           maxLength={500}
           name="pace-group-message"
           autoComplete="off"
-          autoCorrect="on"
+          autoCorrect="off"
           autoCapitalize="sentences"
           enterKeyHint="send"
-          spellCheck="true"
+          spellCheck="false"
+          data-form-type="other"
           className="min-w-0 flex-1 h-11 bg-surface border border-border rounded-2xl px-4 text-sm outline-none focus:border-text-faint placeholder:text-text-faint"
         />
         <button
