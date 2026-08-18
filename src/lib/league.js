@@ -11,7 +11,7 @@ export const LEAGUES = [
   { name: 'Silver', textClass: 'text-league-silver', bgClass: 'bg-league-silver-soft', borderClass: 'border-league-silver/30', ringClass: 'ring-league-silver', chipClass: 'bg-league-silver' },
   { name: 'Bronze', textClass: 'text-league-bronze', bgClass: 'bg-league-bronze-soft', borderClass: 'border-league-bronze/30', ringClass: 'ring-league-bronze', chipClass: 'bg-league-bronze' },
 ]
-const UNRANKED = { name: 'Unranked', textClass: 'text-league-none', bgClass: 'bg-league-none-soft', borderClass: 'border-league-none/30' }
+const UNRANKED = { name: 'Unranked', textClass: 'text-league-none', bgClass: 'bg-league-none-soft', borderClass: 'border-league-none/30', ringClass: 'ring-league-none', chipClass: 'bg-league-none' }
 
 // Given the sorted-descending list and a uid, returns that member's league
 // standing for the week: which league they're in (or 'Unranked'), and how
