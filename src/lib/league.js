@@ -7,9 +7,9 @@ import { formatDuration } from './format'
 // these are spelled out in full here rather than built with string
 // interpolation at the call site.
 export const LEAGUES = [
-  { name: 'Gold', textClass: 'text-league-gold', bgClass: 'bg-league-gold-soft', borderClass: 'border-league-gold/30' },
-  { name: 'Silver', textClass: 'text-league-silver', bgClass: 'bg-league-silver-soft', borderClass: 'border-league-silver/30' },
-  { name: 'Bronze', textClass: 'text-league-bronze', bgClass: 'bg-league-bronze-soft', borderClass: 'border-league-bronze/30' },
+  { name: 'Gold', textClass: 'text-league-gold', bgClass: 'bg-league-gold-soft', borderClass: 'border-league-gold/30', ringClass: 'ring-league-gold', chipClass: 'bg-league-gold' },
+  { name: 'Silver', textClass: 'text-league-silver', bgClass: 'bg-league-silver-soft', borderClass: 'border-league-silver/30', ringClass: 'ring-league-silver', chipClass: 'bg-league-silver' },
+  { name: 'Bronze', textClass: 'text-league-bronze', bgClass: 'bg-league-bronze-soft', borderClass: 'border-league-bronze/30', ringClass: 'ring-league-bronze', chipClass: 'bg-league-bronze' },
 ]
 const UNRANKED = { name: 'Unranked', textClass: 'text-league-none', bgClass: 'bg-league-none-soft', borderClass: 'border-league-none/30' }
 

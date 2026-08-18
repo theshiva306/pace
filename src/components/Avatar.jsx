@@ -8,7 +8,7 @@ const SIZES = {
   xl: 'w-24 h-24 text-2xl',
 }
 
-export default function Avatar({ name, photoURL, size = 'md', live = false, showDot = true, className = '' }) {
+export default function Avatar({ name, photoURL, size = 'md', live = false, showDot = true, tier = null, className = '' }) {
   const dim = SIZES[size] || SIZES.md
   const [imageFailed, setImageFailed] = useState(false)
 
@@ -18,7 +18,7 @@ export default function Avatar({ name, photoURL, size = 'md', live = false, show
         <span className="absolute -inset-1 rounded-full bg-live/25 animate-breathe" aria-hidden />
       )}
       <div
-        className={`relative ${dim} rounded-full overflow-hidden bg-elevated border border-border flex items-center justify-center font-display font-semibold text-text-dim`}
+        className={`relative ${dim} rounded-full overflow-hidden bg-elevated flex items-center justify-center font-display font-semibold text-text-dim ${tier ? `ring-2 ${tier.ringClass}` : 'border border-border'}`}
       >
         {photoURL && !imageFailed ? (
           <img
