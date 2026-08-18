@@ -4,16 +4,27 @@ import { deletePersonalData, updateDisplayName } from '../lib/sessions'
 import Avatar from '../components/Avatar'
 import Sheet from '../components/Sheet'
 import Button from '../components/Button'
+import useInstallPrompt from '../hooks/useInstallPrompt'
 
 export default function Profile() {
   const { user, profile, groupIds, logout } = useAuth()
   const [editOpen, setEditOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [iosOpen, setIosOpen] = useState(false)
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
   const [logoutBusy, setLogoutBusy] = useState(false)
   const [deleteError, setDeleteError] = useState('')
   const [deleteSuccess, setDeleteSuccess] = useState(false)
+  const { installed, canPromptInstall, iosManualInstall, promptInstall } = useInstallPrompt()
+
+  async function handleInstall() {
+    if (canPromptInstall) {
+      await promptInstall()
+    } else if (iosManualInstall) {
+      setIosOpen(true)
+    }
+  }
 
   useEffect(() => {
     if (editOpen) setName(profile?.displayName || '')
@@ -79,6 +90,20 @@ export default function Profile() {
         <Row label="Email" value={user.email || '—'} last />
       </Section>
 
+      {!installed && (canPromptInstall || iosManualInstall) && (
+        <Section title="App">
+          <button
+            onClick={handleInstall}
+            className="w-full flex items-center justify-between py-4 text-left"
+          >
+            <span className="text-sm font-medium">Add to Home Screen</span>
+            <span className="text-xs text-accent font-medium">
+              {canPromptInstall ? 'Install' : 'How to'}
+            </span>
+          </button>
+        </Section>
+      )}
+
       {deleteSuccess && (
         <div className="mb-4 rounded-xl border border-accent/20 bg-accent/10 px-4 py-3 text-center text-sm text-accent">
           Your Pace data was deleted. Groups were kept.
@@ -119,6 +144,24 @@ export default function Profile() {
           />
           <Button variant="primary" className="w-full" onClick={handleSave} disabled={busy || !name.trim()}>
             {busy ? 'Saving…' : 'Save'}
+          </Button>
+        </div>
+      </Sheet>
+
+      <Sheet open={iosOpen} onClose={() => setIosOpen(false)}>
+        <div className="text-center">
+          <div className="font-display text-xl font-semibold mb-3">Add to Home Screen</div>
+          <p className="text-sm leading-6 text-text-dim mb-6">
+            iOS requires Safari to install apps — Chrome can't do this on iPhone/iPad.
+          </p>
+          <div className="text-left space-y-4 mb-6">
+            <Step n={1} text="Open this page in Safari" />
+            <Step n={2} text="Tap the Share icon (square with an arrow) in the toolbar" />
+            <Step n={3} text='Scroll down and tap "Add to Home Screen"' />
+            <Step n={4} text='Tap "Add" in the top right' />
+          </div>
+          <Button variant="primary" className="w-full" onClick={() => setIosOpen(false)}>
+            Got it
           </Button>
         </div>
       </Sheet>
@@ -173,6 +216,17 @@ function Row({ label, value, last }) {
     <div className={`flex items-center justify-between py-4 ${last ? '' : 'border-b border-border-soft'}`}>
       <span className="text-sm text-text-dim">{label}</span>
       <span className="text-sm font-medium truncate max-w-[60%]">{value}</span>
+    </div>
+  )
+}
+
+function Step({ n, text }) {
+  return (
+    <div className="flex items-start gap-3">
+      <span className="shrink-0 w-6 h-6 rounded-full bg-elevated border border-border flex items-center justify-center text-xs font-medium">
+        {n}
+      </span>
+      <span className="text-sm text-text-dim pt-0.5">{text}</span>
     </div>
   )
 }
