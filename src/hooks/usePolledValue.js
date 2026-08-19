@@ -3,6 +3,7 @@ import { ref, get, onValue } from 'firebase/database'
 import { db } from '../firebase'
 import { isoWeekId } from '../lib/week'
 import { dayId } from '../lib/day'
+import { isCurrentlyLive } from '../lib/staleSession'
 
 // Named for its `refresh()`/`refreshing` API (used for pull-to-refresh UX),
 // but for group study paths this is realtime, not polling: it subscribes
@@ -84,7 +85,13 @@ export function usePolledValue(path, { intervalMs = 60000, enabled = true } = {}
 
       for (const uid of Object.keys(members)) {
         if (isGroupLive) {
-          if (sessions[uid]) result[uid] = sessions[uid]
+          // Abandoned (paused/on-break too long) sessions stop counting as
+          // "live" here — same threshold as everywhere else, see
+          // lib/staleSession.js. Their accumulated time isn't touched by
+          // this branch at all; it's the totals branch below that carries
+          // numbers, and a paused session's contribution there is already
+          // frozen the instant it's paused, so nothing to filter there.
+          if (sessions[uid] && isCurrentlyLive(sessions[uid], nowRef.current)) result[uid] = sessions[uid]
           continue
         }
 

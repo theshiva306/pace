@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ref, onValue } from 'firebase/database'
 import { db } from '../firebase'
+import { isCurrentlyLive } from '../lib/staleSession'
 
 // Group summaries keep membership/name group-owned, but live presence is
 // derived from each member's user-owned active session.
@@ -22,7 +23,7 @@ export function useMyGroups(groupIds) {
             ...(prev[groupId] || {}),
             ...patch,
             memberCount: Object.keys(members).length,
-            liveCount: Object.values(liveByUid).filter(Boolean).length,
+            liveCount: Object.values(liveByUid).filter((s) => isCurrentlyLive(s, Date.now())).length,
           },
         }))
       }
@@ -54,6 +55,14 @@ export function useMyGroups(groupIds) {
 
       unsubs.push(unsubMembers)
       unsubs.push(() => memberUnsubs.forEach((u) => u()))
+
+      // Nothing about a paused session's Firebase data changes the instant
+      // it crosses the staleness threshold — there's no write to react to.
+      // Re-publish periodically so the "live" badge still drops on its own
+      // once enough time has passed, without needing a fresh Firebase
+      // update to trigger it. Every 60s is plenty against a 3-hour window.
+      const staleCheckId = window.setInterval(() => publish(), 60000)
+      unsubs.push(() => window.clearInterval(staleCheckId))
     })
 
     return () => unsubs.forEach((u) => u())

@@ -11,3 +11,16 @@ export function isStaleSession(session, now) {
   if (!isPausedOrBreak || !session.pausedAt) return false
   return now - Number(session.pausedAt) > STALE_PAUSE_MS
 }
+
+// Whether a session should count as "focusing/paused/onBreak" for Live-tab
+// style displays. Deliberately separate from the session's accumulated
+// time: a paused session's elapsed-time contribution is already
+// mathematically frozen the moment it's paused (the ongoing-real-time term
+// and the paused-since term cancel out), so it never needs zeroing out —
+// only the "is this person currently live" badge needs to stop being true
+// once it's been abandoned.
+export function isCurrentlyLive(session, now) {
+  if (!session) return false
+  if (!['active', 'paused', 'onBreak'].includes(session.status)) return false
+  return !isStaleSession(session, now)
+}
