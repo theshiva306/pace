@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { ref, onValue, remove } from 'firebase/database'
 import { db } from '../firebase'
 import { isCurrentlyLive } from '../lib/staleSession'
+import { focusSeconds, todayFocusSeconds } from '../lib/sessionMath'
 
 const CHAT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
 
@@ -136,7 +137,7 @@ export function useGroup(groupId, weekId, dayId) {
     const result = { ...daily }
     for (const [uid, session] of Object.entries(live)) {
       if (!session) continue
-      result[uid] = (result[uid] || 0) + focusSeconds(session, now)
+      result[uid] = (result[uid] || 0) + todayFocusSeconds(session, now)
     }
     return result
   }, [daily, live, now])
@@ -150,14 +151,4 @@ export function useGroup(groupId, weekId, dayId) {
     daily: realtimeDaily,
     live: displayLive,
   }
-}
-
-function focusSeconds(session, now) {
-  if (!session?.startedAt) return 0
-  const total = Math.max(0, (now - Number(session.startedAt)) / 1000)
-  const pausedBefore = Math.max(0, Number(session.pausedSeconds) || 0)
-  const pausedNow = session.status !== 'active' && session.pausedAt
-    ? Math.max(0, (now - Number(session.pausedAt)) / 1000)
-    : 0
-  return Math.floor(Math.max(0, total - pausedBefore - pausedNow))
 }

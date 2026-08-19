@@ -4,6 +4,7 @@ import { db } from '../firebase'
 import { isoWeekId } from '../lib/week'
 import { dayId } from '../lib/day'
 import { isCurrentlyLive } from '../lib/staleSession'
+import { focusSeconds, todayFocusSeconds } from '../lib/sessionMath'
 
 // Named for its `refresh()`/`refreshing` API (used for pull-to-refresh UX),
 // but for group study paths this is realtime, not polling: it subscribes
@@ -97,7 +98,9 @@ export function usePolledValue(path, { intervalMs = 60000, enabled = true } = {}
 
         result[uid] = Number(stats[uid] || 0)
         if (includeActive && sessions[uid]?.startedAt) {
-          result[uid] += focusSeconds(sessions[uid], nowRef.current)
+          result[uid] += isDailyTotal
+            ? todayFocusSeconds(sessions[uid], nowRef.current)
+            : focusSeconds(sessions[uid], nowRef.current)
         }
       }
 
@@ -150,15 +153,4 @@ export function usePolledValue(path, { intervalMs = 60000, enabled = true } = {}
   }, [path, enabled, isGroupStudyPath, isGroupLive, isDailyTotal, isWeeklyTotal, groupId, periodId])
 
   return { value, refresh, refreshing, updatedAt, loading: value === undefined }
-}
-
-function focusSeconds(session, now) {
-  if (!session?.startedAt) return 0
-  const startedAt = Number(session.startedAt)
-  if (!Number.isFinite(startedAt)) return 0
-  const pausedBefore = Math.max(0, Number(session.pausedSeconds) || 0)
-  const pausedNow = session.status !== 'active' && session.pausedAt
-    ? Math.max(0, (now - Number(session.pausedAt)) / 1000)
-    : 0
-  return Math.floor(Math.max(0, (now - startedAt) / 1000 - pausedBefore - pausedNow))
 }
