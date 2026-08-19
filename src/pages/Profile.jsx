@@ -16,7 +16,7 @@ export default function Profile() {
   const [logoutBusy, setLogoutBusy] = useState(false)
   const [deleteError, setDeleteError] = useState('')
   const [deleteSuccess, setDeleteSuccess] = useState(false)
-  const { installed, canPromptInstall, browser, promptInstall } = useInstallPrompt()
+  const { installed, installedElsewhere, canPromptInstall, browser, promptInstall } = useInstallPrompt()
 
   async function handleInstall() {
     if (canPromptInstall) {
@@ -105,6 +105,15 @@ export default function Profile() {
                 : 'How to'}
             </span>
           </button>
+        </Section>
+      )}
+
+      {installedElsewhere && (
+        <Section title="App">
+          <div className="w-full flex items-center justify-between py-4 text-left">
+            <span className="text-sm font-medium">Already added</span>
+            <span className="text-xs text-text-faint font-medium">On your home screen</span>
+          </div>
         </Section>
       )}
 
