@@ -1,8 +1,20 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ref, onValue, remove } from 'firebase/database'
 import { db } from '../firebase'
+import { isStaleSession } from '../lib/staleSession'
 
 const CHAT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
+
+// If someone pauses (or steps into a break) and never comes back, their
+// activeSessions node just sits there forever — there's no server-side
+// expiry. Left unfiltered, that stale "paused" state would show up in the
+// group's Live tab indefinitely, and its frozen elapsed time would keep
+// getting folded into *today's* live totals below even if the session
+// actually started yesterday or earlier. Anything paused/on a break for
+// longer than STALE_PAUSE_MS (see lib/staleSession.js) is treated as
+// abandoned and excluded — as far as everyone else in the group is
+// concerned, it's as if it were never resumed. The owner's own Timer
+// screen handles prompting them to actually resolve it (save or discard).
 
 // Group membership, chat, and display metadata remain group-owned.
 // Study totals and live presence are user-owned. The group subscribes to
@@ -96,23 +108,34 @@ export function useGroup(groupId, weekId, dayId) {
     return () => window.clearInterval(id)
   }, [hasLive])
 
+  // Sessions paused/on-break past STALE_PAUSE_MS are treated as if absent
+  // for every downstream consumer — the Live tab, and the real-time totals
+  // below. See the comment on STALE_PAUSE_MS for why.
+  const effectiveLive = useMemo(() => {
+    const result = {}
+    for (const [uid, session] of Object.entries(live)) {
+      result[uid] = isStaleSession(session, now) ? null : session
+    }
+    return result
+  }, [live, now])
+
   const realtimeWeekly = useMemo(() => {
     const result = { ...weekly }
-    for (const [uid, session] of Object.entries(live)) {
+    for (const [uid, session] of Object.entries(effectiveLive)) {
       if (!session) continue
       result[uid] = (result[uid] || 0) + focusSeconds(session, now)
     }
     return result
-  }, [weekly, live, now])
+  }, [weekly, effectiveLive, now])
 
   const realtimeDaily = useMemo(() => {
     const result = { ...daily }
-    for (const [uid, session] of Object.entries(live)) {
+    for (const [uid, session] of Object.entries(effectiveLive)) {
       if (!session) continue
       result[uid] = (result[uid] || 0) + focusSeconds(session, now)
     }
     return result
-  }, [daily, live, now])
+  }, [daily, effectiveLive, now])
 
   return {
     group,
@@ -121,7 +144,7 @@ export function useGroup(groupId, weekId, dayId) {
     weekly: realtimeWeekly,
     sessionCounts,
     daily: realtimeDaily,
-    live,
+    live: effectiveLive,
   }
 }
 

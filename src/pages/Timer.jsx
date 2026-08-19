@@ -12,6 +12,7 @@ import {
 } from '../lib/sessions'
 import { loadTimerSettings, saveTimerSettings } from '../lib/timerSettings'
 import { fireAction } from '../lib/fireAction'
+import { isStaleSession } from '../lib/staleSession'
 import { Live } from './GroupDetail'
 import { TimerSkeleton } from '../components/Skeleton'
 import Sheet from '../components/Sheet'
@@ -63,6 +64,31 @@ export default function Timer() {
     }
     if (!clock.isOnBreak) autoResumeFired.current = false
   }, [clock.isOnBreak, clock.breakRemaining, user.uid, groupIds])
+
+  // If a session was paused (or on a break) and simply abandoned — the
+  // person closed the app, or forgot about it entirely — silently
+  // resuming a possibly day-old pause would be confusing both for them
+  // and for anyone in their groups seeing it as "live." Instead, route
+  // it through the same save/discard screen a normal stop uses, so they
+  // explicitly decide what happens to that leftover time before starting
+  // anything new. Guarded so this only fires once per abandoned session,
+  // not on every render while the resulting save screen is showing.
+  const staleHandledRef = useRef(false)
+  useEffect(() => {
+    if (!session) { staleHandledRef.current = false; return }
+    if (staleHandledRef.current || !isStaleSession(session, Date.now())) return
+    staleHandledRef.current = true
+
+    const durationSeconds = Math.round(clock.focusElapsed)
+    const startedAtMs = session.startedAt
+    const endedAtMs = session.pausedAt || Date.now()
+
+    if (durationSeconds < MIN_SAVEABLE_SECONDS) {
+      fireAction(() => clearActiveSession(user.uid, groupIds))
+      return
+    }
+    setStopped({ session, durationSeconds, startedAtMs, endedAtMs, wasStale: true })
+  }, [session, clock.focusElapsed, user.uid, groupIds])
 
   async function handleStart(s) {
     if (busy || session) return
@@ -622,7 +648,14 @@ function SaveSessionScreen({ stopped, busy, onSave, onDelete }) {
   const timeRange = `${formatMessageTime(stopped.startedAtMs)} – ${formatMessageTime(stopped.endedAtMs)}`
   return (
     <div className="min-h-svh flex flex-col items-center justify-center px-8 text-center animate-fade-in">
-      <div className="text-[13px] tracking-[0.25em] text-text-faint mb-2">SAVE SESSION</div>
+      <div className="text-[13px] tracking-[0.25em] text-text-faint mb-2">
+        {stopped.wasStale ? 'PAUSED SESSION FOUND' : 'SAVE SESSION'}
+      </div>
+      {stopped.wasStale && (
+        <p className="text-xs text-text-faint max-w-[240px] mb-4 leading-relaxed">
+          You paused this a while ago and it looks like it got left behind — save the time or discard it.
+        </p>
+      )}
       <div className="text-xs text-text-faint mb-10">{timeRange}</div>
       <div className="w-48 h-48 rounded-full border-4 border-live flex flex-col items-center justify-center mb-12">
         <span className="font-display text-3xl font-semibold tabular-nums">{formatDuration(stopped.durationSeconds)}</span>
