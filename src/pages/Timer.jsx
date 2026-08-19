@@ -44,6 +44,7 @@ export default function Timer() {
   const [stopConfirmOpen, setStopConfirmOpen] = useState(false)
   const [buffering, setBuffering] = useState(false)
   const [stopped, setStopped] = useState(null) // { session, durationSeconds, startedAtMs, endedAtMs }
+  const [saveError, setSaveError] = useState(false)
   const [busy, setBusy] = useState(false)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [pinnedPanelOpen, setPinnedPanelOpen] = useState(false)
@@ -167,7 +168,13 @@ export default function Timer() {
 
     // Too short to be worth saving — just end it, no save screen at all.
     if (durationSeconds < MIN_SAVEABLE_SECONDS) {
-      await fireAction(() => clearActiveSession(user.uid, groupIds))
+      try {
+        await clearActiveSession(user.uid, groupIds)
+      } catch {
+        // If this fails (offline, etc.) the session just stays put and
+        // will be picked up again next time the app opens — better than
+        // silently pretending it's gone while it's actually still there.
+      }
       setBuffering(false)
       return
     }
@@ -179,15 +186,21 @@ export default function Timer() {
   async function handleSave() {
     if (!stopped || busy) return
     setBusy(true)
+    setSaveError(false)
     try {
-      await fireAction(() => saveSession({
+      await saveSession({
         uid: user.uid,
         groupId: groupIds[0] ?? null,
         groupIds,
         session: stopped.session,
         durationSeconds: stopped.durationSeconds,
-      }))
+      })
       setStopped(null)
+    } catch {
+      // Leave `stopped` in place and let them try again — dismissing the
+      // screen here would make it look saved when it might not be, with
+      // no way back to that data afterward.
+      setSaveError(true)
     } finally {
       setBusy(false)
     }
@@ -202,9 +215,12 @@ export default function Timer() {
     if (!stopped || busy) return
     setDeleteConfirmOpen(false)
     setBusy(true)
+    setSaveError(false)
     try {
-      await fireAction(() => clearActiveSession(user.uid, groupIds))
+      await clearActiveSession(user.uid, groupIds)
       setStopped(null)
+    } catch {
+      setSaveError(true)
     } finally {
       setBusy(false)
     }
@@ -242,7 +258,7 @@ export default function Timer() {
   if (stopped) {
     return (
       <>
-        <SaveSessionScreen stopped={stopped} busy={busy} onSave={handleSave} onDelete={handleDeleteRequest} />
+        <SaveSessionScreen stopped={stopped} busy={busy} error={saveError} onSave={handleSave} onDelete={handleDeleteRequest} />
         <Sheet open={deleteConfirmOpen} onClose={() => setDeleteConfirmOpen(false)}>
           <div className="flex flex-col items-center text-center">
             <div className="text-base font-medium mb-2">Are you sure you want to delete this session?</div>
@@ -644,7 +660,7 @@ function SettingsRow({ label, value, onClick }) {
   )
 }
 
-function SaveSessionScreen({ stopped, busy, onSave, onDelete }) {
+function SaveSessionScreen({ stopped, busy, error, onSave, onDelete }) {
   const timeRange = `${formatMessageTime(stopped.startedAtMs)} – ${formatMessageTime(stopped.endedAtMs)}`
   return (
     <div className="min-h-svh flex flex-col items-center justify-center px-8 text-center animate-fade-in">
@@ -661,9 +677,14 @@ function SaveSessionScreen({ stopped, busy, onSave, onDelete }) {
         <span className="font-display text-3xl font-semibold tabular-nums">{formatDuration(stopped.durationSeconds)}</span>
         <span className="text-xs text-text-faint mt-1">Total focus</span>
       </div>
+      {error && (
+        <p className="text-xs text-danger mb-4 max-w-[240px]">
+          Couldn't reach the server — check your connection and try again. Nothing's been lost yet.
+        </p>
+      )}
       <div className="w-full max-w-xs flex flex-col gap-3">
         <Button variant="primary" className="w-full" onClick={onSave} disabled={busy}>
-          Save
+          {busy ? 'Saving…' : 'Save'}
         </Button>
         <button onClick={onDelete} disabled={busy} className="text-sm text-danger font-medium py-2 disabled:opacity-40">
           Delete
