@@ -296,31 +296,25 @@ export default function Timer() {
 
   return (
     <div className="h-svh flex flex-col items-center px-6 pt-[calc(env(safe-area-inset-top)+18px)] pb-[calc(env(safe-area-inset-bottom)+28px)] md:pb-10">
+      {fullscreenSupported && (
+        <button
+          onClick={toggleFullscreen}
+          aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+          className="fixed z-20 w-8 h-8 flex items-center justify-center text-text-faint hover:text-text active:scale-95 transition-all"
+          style={{ top: 'calc(env(safe-area-inset-top) + 14px)', right: 'calc(env(safe-area-inset-right) + 14px)' }}
+        >
+          {isFullscreen ? <CollapseIcon width={16} height={16} /> : <ExpandIcon width={16} height={16} />}
+        </button>
+      )}
+
       {/* Fixed top row — always the first thing on the page, regardless of
-          which state (idle/break/focusing) fills the space below it.
-          Left spacer matches the right button's width so the pill stays
-          truly centered on the page, not just centered in the leftover
-          space next to the button. */}
-      <div className="w-full flex items-center shrink-0">
-        <div className="w-10 shrink-0" />
-        <div className="flex-1 flex justify-center">
-          <PinnedGroupPill
-            summary={pinnedSummary}
-            onOpen={() => setPinnedPanelOpen(true)}
-            onPinSomething={() => navigate('/groups')}
-          />
-        </div>
-        <div className="w-10 shrink-0 flex justify-end pr-2">
-          {fullscreenSupported && (
-            <button
-              onClick={toggleFullscreen}
-              aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
-              className="w-8 h-8 flex items-center justify-center text-text-faint hover:text-text active:scale-95 transition-all"
-            >
-              {isFullscreen ? <CollapseIcon width={16} height={16} /> : <ExpandIcon width={16} height={16} />}
-            </button>
-          )}
-        </div>
+          which state (idle/break/focusing) fills the space below it. */}
+      <div className="w-full flex justify-center shrink-0">
+        <PinnedGroupPill
+          summary={pinnedSummary}
+          onOpen={() => setPinnedPanelOpen(true)}
+          onPinSomething={() => navigate('/groups')}
+        />
       </div>
 
       {/* Opens as a popup (desktop) / bottom sheet (mobile) rather than
