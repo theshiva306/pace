@@ -238,12 +238,37 @@ function Step({ n, text }) {
 
 const INSTALL_INSTRUCTIONS = {
   'ios-safari': {
-    intro: 'Safari installs Pace through its Share menu. Open this page in Safari, then use Share → Add to Home Screen.',
+    intro: 'Safari can install Pace directly from its Share menu.',
     steps: [
       'Open this page in Safari',
       'Tap the Share icon (square with an arrow) in the toolbar',
       'Scroll down and tap "Add to Home Screen"',
       'Tap "Add" in the top right',
+    ],
+  },
+  'ios-chromium': {
+    intro: 'Chrome and other Chromium-based browsers on iPhone/iPad can add Pace from their Share menu.',
+    steps: [
+      'Tap the Share icon next to the address bar',
+      'Tap "Add to Home Screen"',
+      'Edit the name if you want',
+      'Tap "Add"',
+    ],
+  },
+  'ios-firefox': {
+    intro: 'If your Firefox version provides Add to Home Screen, use it from the browser menu or Share menu. Otherwise, Safari is the most reliable route for a Home Screen web app.',
+    steps: [
+      'Open the browser menu or Share menu',
+      'Look for "Add to Home Screen"',
+      'If it is not available, open this page in Safari and use Share → Add to Home Screen',
+    ],
+  },
+  'ios-other': {
+    intro: 'Your iPhone/iPad browser may provide Add to Home Screen through its Share menu.',
+    steps: [
+      'Open the browser Share menu',
+      'Look for "Add to Home Screen"',
+      'If it is not available, open this page in Safari and use Share → Add to Home Screen',
     ],
   },
   'mac-safari': {
