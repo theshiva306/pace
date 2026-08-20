@@ -5,6 +5,7 @@ import { db } from '../firebase'
 import { isoWeekId } from './week'
 import { dayId } from './day'
 import { ensureUserStats } from './userStats'
+import { bankStreakUpdate } from './sessionMath'
 
 export const MAX_GROUP_SIZE = 6
 
@@ -12,13 +13,43 @@ export async function startSession(uid, _groupIds, mode, targetSeconds = null, b
   const existing = await get(ref(db, `activeSessions/${uid}`))
   if (existing.exists()) return existing.val()
   const sessionId = push(ref(db, `activeSessions/${uid}`)).key
-  const session = { sessionId, startedAt: serverTimestamp(), mode, targetSeconds: targetSeconds ?? null, status: 'active', pausedAt: null, pausedSeconds: 0, breaksAllowed, breaksTaken: 0, breakDurationSeconds }
+  const session = {
+    sessionId,
+    startedAt: serverTimestamp(),
+    // Marks when the *current* active streak began — separate from
+    // startedAt, which never changes. Updated at every resume/endBreak so
+    // the precise today/this-week live totals in lib/sessionMath.js can
+    // clip exactly at day/week boundaries instead of approximating from
+    // a single cumulative pause total. See sessionMath.js for the design.
+    activeSince: serverTimestamp(),
+    mode,
+    targetSeconds: targetSeconds ?? null,
+    status: 'active',
+    pausedAt: null,
+    pausedSeconds: 0,
+    breaksAllowed,
+    breaksTaken: 0,
+    breakDurationSeconds,
+    bankedDayId: null,
+    bankedDaySeconds: 0,
+    bankedWeekId: null,
+    bankedWeekSeconds: 0,
+  }
   await set(ref(db, `activeSessions/${uid}`), session)
   return session
 }
 
 export async function pauseSession(uid, _groupIds) {
-  await update(ref(db, `activeSessions/${uid}`), { status: 'paused', pausedAt: serverTimestamp() })
+  const snap = await get(ref(db, `activeSessions/${uid}`))
+  if (!snap.exists()) return
+  const session = snap.val()
+  if (session.status !== 'active') return
+  // Fold the streak that's ending right now into today's/this week's
+  // banked totals, using the exact timestamps available at this instant
+  // — see bankStreakUpdate's comment in sessionMath.js for why this has
+  // to happen here rather than being reconstructed later.
+  const bank = bankStreakUpdate(session, Date.now())
+  await update(ref(db, `activeSessions/${uid}`), { status: 'paused', pausedAt: serverTimestamp(), ...bank })
 }
 
 export async function resumeSession(uid, _groupIds) {
@@ -27,7 +58,12 @@ export async function resumeSession(uid, _groupIds) {
   const session = snap.val()
   if (session.status === 'active' || !session.pausedAt) return
   const spent = Math.max(0, (Date.now() - Number(session.pausedAt)) / 1000)
-  await update(ref(db, `activeSessions/${uid}`), { status: 'active', pausedAt: null, pausedSeconds: (session.pausedSeconds || 0) + spent })
+  await update(ref(db, `activeSessions/${uid}`), {
+    status: 'active',
+    pausedAt: null,
+    pausedSeconds: (session.pausedSeconds || 0) + spent,
+    activeSince: serverTimestamp(), // a fresh streak starts now
+  })
 }
 
 export async function startBreak(uid, _groupIds) {
@@ -35,7 +71,13 @@ export async function startBreak(uid, _groupIds) {
   if (!snap.exists()) return
   const session = snap.val()
   if (session.status !== 'active' || (session.breaksTaken || 0) >= (session.breaksAllowed || 0)) return
-  await update(ref(db, `activeSessions/${uid}`), { status: 'onBreak', pausedAt: serverTimestamp(), breaksTaken: (session.breaksTaken || 0) + 1 })
+  const bank = bankStreakUpdate(session, Date.now())
+  await update(ref(db, `activeSessions/${uid}`), {
+    status: 'onBreak',
+    pausedAt: serverTimestamp(),
+    breaksTaken: (session.breaksTaken || 0) + 1,
+    ...bank,
+  })
 }
 
 export const endBreak = resumeSession

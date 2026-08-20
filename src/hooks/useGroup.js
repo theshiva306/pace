@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { ref, onValue, remove } from 'firebase/database'
 import { db } from '../firebase'
 import { isCurrentlyLive } from '../lib/staleSession'
-import { focusSeconds, todayFocusSeconds } from '../lib/sessionMath'
+import { todayFocusSeconds, thisWeekFocusSeconds } from '../lib/sessionMath'
 
 const CHAT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
 
@@ -111,11 +111,11 @@ export function useGroup(groupId, weekId, dayId) {
 
   // displayLive drives "who's currently focusing/paused/onBreak" for the
   // Live tab and badge counts — abandoned sessions drop out of that once
-  // stale. It's deliberately NOT used for the totals below: a paused
-  // session's contribution to weekly/daily is already frozen the instant
-  // it's paused (see isCurrentlyLive's comment), so those numbers stay
-  // exactly as they were the moment the person paused — nothing to zero
-  // out, and nothing that needs "waiting for staleness" to be correct.
+  // stale. It's deliberately separate from the totals below, which use
+  // todayFocusSeconds/thisWeekFocusSeconds (lib/sessionMath.js) — those
+  // are precisely clipped to the current day/week boundary regardless of
+  // pause history, so nothing here needs to "wait for staleness" to be
+  // correct.
   const displayLive = useMemo(() => {
     const result = {}
     for (const [uid, session] of Object.entries(live)) {
@@ -128,7 +128,7 @@ export function useGroup(groupId, weekId, dayId) {
     const result = { ...weekly }
     for (const [uid, session] of Object.entries(live)) {
       if (!session) continue
-      result[uid] = (result[uid] || 0) + focusSeconds(session, now)
+      result[uid] = (result[uid] || 0) + thisWeekFocusSeconds(session, now)
     }
     return result
   }, [weekly, live, now])

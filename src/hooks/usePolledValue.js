@@ -4,7 +4,7 @@ import { db } from '../firebase'
 import { isoWeekId } from '../lib/week'
 import { dayId } from '../lib/day'
 import { isCurrentlyLive } from '../lib/staleSession'
-import { focusSeconds, todayFocusSeconds } from '../lib/sessionMath'
+import { todayFocusSeconds, thisWeekFocusSeconds } from '../lib/sessionMath'
 
 // Named for its `refresh()`/`refreshing` API (used for pull-to-refresh UX),
 // but for group study paths this is realtime, not polling: it subscribes
@@ -88,10 +88,10 @@ export function usePolledValue(path, { intervalMs = 60000, enabled = true } = {}
         if (isGroupLive) {
           // Abandoned (paused/on-break too long) sessions stop counting as
           // "live" here — same threshold as everywhere else, see
-          // lib/staleSession.js. Their accumulated time isn't touched by
-          // this branch at all; it's the totals branch below that carries
-          // numbers, and a paused session's contribution there is already
-          // frozen the instant it's paused, so nothing to filter there.
+          // lib/staleSession.js. Doesn't touch the totals branch below,
+          // which uses todayFocusSeconds/thisWeekFocusSeconds — those are
+          // precisely clipped to the current day/week regardless of pause
+          // history, so nothing there needs staleness-gating either.
           if (sessions[uid] && isCurrentlyLive(sessions[uid], nowRef.current)) result[uid] = sessions[uid]
           continue
         }
@@ -100,7 +100,7 @@ export function usePolledValue(path, { intervalMs = 60000, enabled = true } = {}
         if (includeActive && sessions[uid]?.startedAt) {
           result[uid] += isDailyTotal
             ? todayFocusSeconds(sessions[uid], nowRef.current)
-            : focusSeconds(sessions[uid], nowRef.current)
+            : thisWeekFocusSeconds(sessions[uid], nowRef.current)
         }
       }
 
