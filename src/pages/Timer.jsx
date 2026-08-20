@@ -20,7 +20,8 @@ import Button from '../components/Button'
 import SegmentedControl from '../components/SegmentedControl'
 import Stepper from '../components/Stepper'
 import WheelColumn from '../components/WheelColumn'
-import { ChevronRight, PinIcon } from '../components/icons'
+import { ChevronRight, PinIcon, ExpandIcon, CollapseIcon } from '../components/icons'
+import useFullscreen from '../hooks/useFullscreen'
 
 const LIVE_POLL_MS = 60000
 
@@ -29,6 +30,7 @@ const MINUTES = Array.from({ length: 12 }, (_, i) => i * 5) // 0,5,...,55
 
 export default function Timer() {
   const { user, profile, groupIds } = useAuth()
+  const { isFullscreen, toggle: toggleFullscreen, supported: fullscreenSupported } = useFullscreen()
   const navigate = useNavigate()
   const session = useActiveSession()
   const clock = useSessionClock(session)
@@ -296,12 +298,21 @@ export default function Timer() {
     <div className="h-svh flex flex-col items-center px-6 pt-[calc(env(safe-area-inset-top)+18px)] pb-[calc(env(safe-area-inset-bottom)+28px)] md:pb-10">
       {/* Fixed top row — always the first thing on the page, regardless of
           which state (idle/break/focusing) fills the space below it. */}
-      <div className="w-full flex justify-center shrink-0">
+      <div className="w-full relative flex justify-center shrink-0">
         <PinnedGroupPill
           summary={pinnedSummary}
           onOpen={() => setPinnedPanelOpen(true)}
           onPinSomething={() => navigate('/groups')}
         />
+        {fullscreenSupported && (
+          <button
+            onClick={toggleFullscreen}
+            aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+            className="absolute right-0 top-1/2 -translate-y-1/2 w-9 h-9 rounded-lg bg-elevated border border-border flex items-center justify-center text-text-dim hover:text-text active:scale-95 transition-all"
+          >
+            {isFullscreen ? <CollapseIcon /> : <ExpandIcon />}
+          </button>
+        )}
       </div>
 
       {/* Opens as a popup (desktop) / bottom sheet (mobile) rather than
