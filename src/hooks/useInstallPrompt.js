@@ -3,12 +3,12 @@ import { useEffect, useState } from 'react'
 function isStandalone() {
   return (
     window.matchMedia?.('(display-mode: standalone)').matches ||
-    window.navigator.standalone === true // iOS/iPadOS Safari
+    window.navigator.standalone === true // iOS/iPadOS Home Screen web app
   )
 }
 
 // Best-effort browser/platform detection, used only to pick the right
-// instructions when there is no programmatic install API (Safari, Firefox).
+// instructions when there is no programmatic install API (Safari, iOS browsers).
 function detectBrowser() {
   const ua = window.navigator.userAgent
   const platform = window.navigator.platform
@@ -16,14 +16,18 @@ function detectBrowser() {
     /iphone|ipad|ipod/i.test(ua) ||
     (platform === 'MacIntel' && window.navigator.maxTouchPoints > 1) // iPadOS desktop UA
   const isAndroid = /android/i.test(ua)
-  const isSafari = /^((?!chrome|android|crios|fxios|edg).)*safari/i.test(ua)
   const isFirefox = /firefox|fxios/i.test(ua)
-  const isChromium = /chrome|crios|edg/i.test(ua) && !isFirefox
+  const isChromium = /chrome|crios|edg|edgios/i.test(ua) && !isFirefox
+  const isSafari = /^((?!chrome|android|crios|fxios|edg|edgios).)*safari/i.test(ua)
 
-  // All iOS/iPadOS browsers use WebKit, and none exposes the Chromium
-  // beforeinstallprompt API. Safari's Share → Add to Home Screen flow is
-  // therefore the correct install path on iPhone/iPad.
-  if (isIOS) return 'ios-safari'
+  // iOS/iPadOS browsers do not expose Chromium's beforeinstallprompt API.
+  // However, iOS 16.4+ allows third-party browsers to expose Add to Home
+  // Screen through their own Share menu. Detect the actual browser instead
+  // of treating every iOS browser as Safari.
+  if (isIOS && isSafari) return 'ios-safari'
+  if (isIOS && isChromium) return 'ios-chromium'
+  if (isIOS && isFirefox) return 'ios-firefox'
+  if (isIOS) return 'ios-other'
   if (isSafari) return 'mac-safari'
   if (isFirefox) return 'firefox'
   if (isChromium && isAndroid) return 'android-chromium'
@@ -31,9 +35,8 @@ function detectBrowser() {
   return 'other'
 }
 
-// Tracks Chrome/Edge's native install prompt and exposes a simple API for a
-// custom "Add to Home Screen" button. Safari and Firefox use their own
-// browser UI, so the app shows manual instructions instead.
+// Tracks Chrome/Edge's native install prompt where beforeinstallprompt is
+// available. iOS browsers use their own browser Share menu instead.
 //
 // Do not persist an "installed" flag in localStorage. An installed PWA and a
 // normal browser tab share the same origin/storage, so a stale flag can hide
@@ -84,7 +87,7 @@ export default function useInstallPrompt() {
   }, [])
 
   // Only hide the install row when THIS page is currently running as the
-  // installed app. A normal Safari/Chrome tab can always show its install UI.
+  // installed app. A normal browser tab can always show its install UI.
   const installed = standalone
   const canPromptInstall = !!deferredPrompt && !installed
 
