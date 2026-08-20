@@ -301,7 +301,7 @@ export default function Timer() {
           onClick={toggleFullscreen}
           aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
           className="fixed z-20 w-8 h-8 flex items-center justify-center text-text-faint hover:text-text active:scale-95 transition-all"
-          style={{ top: 'calc(env(safe-area-inset-top) + 14px)', right: 'calc(env(safe-area-inset-right) + 14px)' }}
+          style={{ top: 'calc(env(safe-area-inset-top) + 19px)', right: 'calc(env(safe-area-inset-right) + 14px)' }}
         >
           {isFullscreen ? <CollapseIcon width={16} height={16} /> : <ExpandIcon width={16} height={16} />}
         </button>
