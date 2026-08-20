@@ -1,7 +1,5 @@
 import { useEffect, useState } from 'react'
 
-const INSTALLED_FLAG_KEY = 'pace:installedOnDevice'
-
 function isStandalone() {
   return (
     window.matchMedia?.('(display-mode: standalone)').matches ||
@@ -9,30 +7,8 @@ function isStandalone() {
   )
 }
 
-// Whether this device has ever installed the app, per our own record —
-// separate from isStandalone(), which only tells us whether *this specific
-// page load* happens to be running inside the installed app shell. Someone
-// who installed Pace and later opens the same URL in a normal browser tab
-// (not tapping their home-screen icon) would otherwise look exactly like a
-// first-time visitor and get offered install again.
-function wasEverInstalled() {
-  try {
-    return localStorage.getItem(INSTALLED_FLAG_KEY) === '1'
-  } catch {
-    return false
-  }
-}
-
-function markInstalled() {
-  try {
-    localStorage.setItem(INSTALLED_FLAG_KEY, '1')
-  } catch {
-    // Best-effort only — worst case we just ask again next time.
-  }
-}
-
 // Best-effort browser/platform detection, used only to pick the right
-// instructions when there's no programmatic install API (Safari, Firefox).
+// instructions when there is no programmatic install API (Safari, Firefox).
 function detectBrowser() {
   const ua = window.navigator.userAgent
   const isIOS = /iphone|ipad|ipod/i.test(ua)
@@ -41,8 +17,11 @@ function detectBrowser() {
   const isFirefox = /firefox|fxios/i.test(ua)
   const isChromium = /chrome|crios|edg/i.test(ua) && !isFirefox
 
-  if (isIOS) return 'ios-safari' // covers Chrome/Firefox on iOS too — Apple forces WebKit
-  if (isSafari && !isIOS) return 'mac-safari'
+  // All iOS browsers use WebKit, and none exposes the Chromium
+  // beforeinstallprompt API. Safari's Share → Add to Home Screen flow is
+  // therefore the correct install path on iPhone/iPad.
+  if (isIOS) return 'ios-safari'
+  if (isSafari) return 'mac-safari'
   if (isFirefox) return 'firefox'
   if (isChromium && isAndroid) return 'android-chromium'
   if (isChromium) return 'chromium'
@@ -50,23 +29,27 @@ function detectBrowser() {
 }
 
 // Tracks Chrome/Edge's native install prompt and exposes a simple API for a
-// custom "Add to Home Screen" button. Falls back to per-browser manual
-// instructions on Safari and Firefox, which don't expose an install API.
+// custom "Add to Home Screen" button. Safari and Firefox use their own
+// browser UI, so the app shows manual instructions instead.
 //
-// `installed` is true if either (a) this page is currently running inside
-// the installed app shell, or (b) we've previously recorded an install on
-// this device — so revisiting the plain website afterward doesn't offer to
-// install it all over again. `installedElsewhere` distinguishes case (b)
-// specifically, so the UI can point the person to their home screen instead
-// of re-running the install flow.
+// IMPORTANT: Do not persist an "installed" flag in localStorage. An installed
+// PWA and a normal browser tab share the same origin/storage, and a stale
+// flag can incorrectly hide the install row forever after the user removes
+// the Home Screen icon. The reliable state for the current page is whether
+// this page is actually running in the installed app shell.
 export default function useInstallPrompt() {
   const [deferredPrompt, setDeferredPrompt] = useState(null)
   const [standalone] = useState(isStandalone)
-  const [recordedInstalled, setRecordedInstalled] = useState(wasEverInstalled)
   const [browser] = useState(detectBrowser)
 
   useEffect(() => {
-    if (standalone) markInstalled()
+    // Remove the legacy flag from older Pace builds. It is intentionally no
+    // longer used to decide whether the install UI should be shown.
+    try {
+      localStorage.removeItem('pace:installedOnDevice')
+    } catch {
+      // Storage can be unavailable in private/restricted browser contexts.
+    }
 
     // Pick up an event that fired before this hook mounted (see main.jsx).
     if (window.__deferredInstallPrompt) {
@@ -76,14 +59,14 @@ export default function useInstallPrompt() {
     function onReady() {
       setDeferredPrompt(window.__deferredInstallPrompt)
     }
+
     function onBeforeInstallPrompt(e) {
       e.preventDefault()
       window.__deferredInstallPrompt = e
       setDeferredPrompt(e)
     }
+
     function onAppInstalled() {
-      markInstalled()
-      setRecordedInstalled(true)
       window.__deferredInstallPrompt = null
       setDeferredPrompt(null)
     }
@@ -91,15 +74,18 @@ export default function useInstallPrompt() {
     window.addEventListener('__installPromptReady', onReady)
     window.addEventListener('beforeinstallprompt', onBeforeInstallPrompt)
     window.addEventListener('appinstalled', onAppInstalled)
+
     return () => {
       window.removeEventListener('__installPromptReady', onReady)
       window.removeEventListener('beforeinstallprompt', onBeforeInstallPrompt)
       window.removeEventListener('appinstalled', onAppInstalled)
     }
-  }, [standalone])
+  }, [])
 
-  const installed = standalone || recordedInstalled
-  const installedElsewhere = recordedInstalled && !standalone
+  // Only hide the install row when THIS page is currently running as the
+  // installed app. A normal Safari/Chrome tab should always be allowed to
+  // show the appropriate install action again.
+  const installed = standalone
   const canPromptInstall = !!deferredPrompt && !installed
 
   async function promptInstall() {
@@ -108,13 +94,8 @@ export default function useInstallPrompt() {
     const choice = await deferredPrompt.userChoice
     window.__deferredInstallPrompt = null
     setDeferredPrompt(null)
-    if (choice.outcome === 'accepted') {
-      markInstalled()
-      setRecordedInstalled(true)
-    }
     return choice.outcome // 'accepted' | 'dismissed'
   }
 
-  return { installed, installedElsewhere, canPromptInstall, browser, promptInstall }
+  return { installed, canPromptInstall, browser, promptInstall }
 }
-
