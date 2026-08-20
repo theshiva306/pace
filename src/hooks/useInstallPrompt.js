@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 function isStandalone() {
   return (
     window.matchMedia?.('(display-mode: standalone)').matches ||
-    window.navigator.standalone === true // iOS Safari
+    window.navigator.standalone === true // iOS/iPadOS Safari
   )
 }
 
@@ -11,13 +11,16 @@ function isStandalone() {
 // instructions when there is no programmatic install API (Safari, Firefox).
 function detectBrowser() {
   const ua = window.navigator.userAgent
-  const isIOS = /iphone|ipad|ipod/i.test(ua)
+  const platform = window.navigator.platform
+  const isIOS =
+    /iphone|ipad|ipod/i.test(ua) ||
+    (platform === 'MacIntel' && window.navigator.maxTouchPoints > 1) // iPadOS desktop UA
   const isAndroid = /android/i.test(ua)
   const isSafari = /^((?!chrome|android|crios|fxios|edg).)*safari/i.test(ua)
   const isFirefox = /firefox|fxios/i.test(ua)
   const isChromium = /chrome|crios|edg/i.test(ua) && !isFirefox
 
-  // All iOS browsers use WebKit, and none exposes the Chromium
+  // All iOS/iPadOS browsers use WebKit, and none exposes the Chromium
   // beforeinstallprompt API. Safari's Share → Add to Home Screen flow is
   // therefore the correct install path on iPhone/iPad.
   if (isIOS) return 'ios-safari'
@@ -32,19 +35,17 @@ function detectBrowser() {
 // custom "Add to Home Screen" button. Safari and Firefox use their own
 // browser UI, so the app shows manual instructions instead.
 //
-// IMPORTANT: Do not persist an "installed" flag in localStorage. An installed
-// PWA and a normal browser tab share the same origin/storage, and a stale
-// flag can incorrectly hide the install row forever after the user removes
-// the Home Screen icon. The reliable state for the current page is whether
-// this page is actually running in the installed app shell.
+// Do not persist an "installed" flag in localStorage. An installed PWA and a
+// normal browser tab share the same origin/storage, so a stale flag can hide
+// the install row after the user removes the Home Screen icon.
 export default function useInstallPrompt() {
   const [deferredPrompt, setDeferredPrompt] = useState(null)
   const [standalone] = useState(isStandalone)
   const [browser] = useState(detectBrowser)
 
   useEffect(() => {
-    // Remove the legacy flag from older Pace builds. It is intentionally no
-    // longer used to decide whether the install UI should be shown.
+    // Remove the legacy flag from older Pace builds. It is no longer used to
+    // decide whether the install UI should be shown.
     try {
       localStorage.removeItem('pace:installedOnDevice')
     } catch {
@@ -83,8 +84,7 @@ export default function useInstallPrompt() {
   }, [])
 
   // Only hide the install row when THIS page is currently running as the
-  // installed app. A normal Safari/Chrome tab should always be allowed to
-  // show the appropriate install action again.
+  // installed app. A normal Safari/Chrome tab can always show its install UI.
   const installed = standalone
   const canPromptInstall = !!deferredPrompt && !installed
 
