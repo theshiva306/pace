@@ -596,7 +596,7 @@ function RingTimer({ label, displaySeconds, totalSeconds, isPaused, accent, chil
   const pct = hasTotal ? Math.min(1, Math.max(0, displaySeconds / totalSeconds)) : 0
   const r = 46
   const c = 2 * Math.PI * r
-  const dash = hasTotal ? c * pct : c
+  const dash = hasTotal ? c * pct : 0
 
   const ringColor = !hasTotal
     ? 'var(--color-border-soft)'
@@ -605,6 +605,15 @@ function RingTimer({ label, displaySeconds, totalSeconds, isPaused, accent, chil
       : 'var(--color-accent)'
 
   const timeColor = isPaused ? 'text-text-faint' : accent || hasTotal ? 'text-accent' : 'text-text'
+
+  // A round line-cap on a dasharray that spans the full circumference (no
+  // progress target, or progress at exactly 100%) leaves a visible seam
+  // right where the path's start and end meet — the cap "pokes out"
+  // slightly past the seam. Flat caps have no such artifact and are
+  // indistinguishable from round ones once the circle is fully closed
+  // anyway, so only use round caps for a genuinely partial arc.
+  const isFullOrEmpty = !hasTotal || pct <= 0 || pct >= 1
+  const showProgress = hasTotal && pct > 0
 
   return (
     <div
@@ -616,14 +625,16 @@ function RingTimer({ label, displaySeconds, totalSeconds, isPaused, accent, chil
         className="absolute inset-0 w-full h-full -rotate-90 overflow-visible pointer-events-none"
       >
         <circle cx="50" cy="50" r={r} fill="none" stroke="var(--color-border-soft)" strokeWidth="3" />
-        <circle
-          cx="50" cy="50" r={r} fill="none"
-          stroke={ringColor}
-          strokeWidth="3"
-          strokeLinecap="round"
-          strokeDasharray={`${dash} ${c}`}
-          className="transition-[stroke-dasharray] duration-500 ease-linear"
-        />
+        {showProgress && (
+          <circle
+            cx="50" cy="50" r={r} fill="none"
+            stroke={ringColor}
+            strokeWidth="3"
+            strokeLinecap={isFullOrEmpty ? 'butt' : 'round'}
+            strokeDasharray={`${dash} ${c}`}
+            className="transition-[stroke-dasharray] duration-500 ease-linear"
+          />
+        )}
       </svg>
       <div className="relative z-10 flex flex-col items-center justify-center w-[74%] px-1">
         <div className="text-[11px] tracking-[0.28em] text-text-faint mb-2 whitespace-nowrap">
