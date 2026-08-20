@@ -16,7 +16,7 @@ export default function Profile() {
   const [logoutBusy, setLogoutBusy] = useState(false)
   const [deleteError, setDeleteError] = useState('')
   const [deleteSuccess, setDeleteSuccess] = useState(false)
-  const { installed, installedElsewhere, canPromptInstall, browser, promptInstall } = useInstallPrompt()
+  const { installed, canPromptInstall, browser, promptInstall } = useInstallPrompt()
 
   async function handleInstall() {
     if (canPromptInstall) {
@@ -105,15 +105,6 @@ export default function Profile() {
                 : 'How to'}
             </span>
           </button>
-        </Section>
-      )}
-
-      {installedElsewhere && (
-        <Section title="App">
-          <div className="w-full flex items-center justify-between py-4 text-left">
-            <span className="text-sm font-medium">Already added</span>
-            <span className="text-xs text-text-faint font-medium">On your home screen</span>
-          </div>
         </Section>
       )}
 
@@ -247,7 +238,7 @@ function Step({ n, text }) {
 
 const INSTALL_INSTRUCTIONS = {
   'ios-safari': {
-    intro: 'iOS requires Safari to install apps — even if you\'re using Chrome or another browser right now, switch to Safari first.',
+    intro: 'Safari installs Pace through its Share menu. Open this page in Safari, then use Share → Add to Home Screen.',
     steps: [
       'Open this page in Safari',
       'Tap the Share icon (square with an arrow) in the toolbar',
@@ -264,33 +255,33 @@ const INSTALL_INSTRUCTIONS = {
     ],
   },
   firefox: {
-    intro: 'Firefox doesn\'t support one-tap installs, but you can still pin Pace for quick access.',
+    intro: 'Firefox does not expose Pace\'s one-tap install prompt, so use the browser\'s own add/bookmark option.',
     steps: [
-      'Bookmark this page (Ctrl/Cmd + D)',
-      'Or tap the menu (☰) and choose "Add to Home screen" on Firefox mobile',
+      'Open the browser menu',
+      'Choose "Add to Home screen" if your Firefox version provides it, otherwise bookmark this page',
     ],
   },
   'android-chromium': {
-    intro: 'Chrome isn\'t offering the install prompt on this device yet. Chrome decides this itself based on how often you\'ve visited the site recently — it usually appears after a few visits over a couple of days. Come back and check again soon.',
+    intro: 'Chrome has not exposed its native install prompt to Pace on this visit yet. You can still use Chrome\'s menu when it offers the install option.',
     steps: [
-      'Keep using Pace normally for a few days',
-      'Then check the ⋮ menu → Add to Home screen → Install app',
-      'Or check back here — this button will switch to "Install" once Chrome offers it',
+      'Open the Chrome ⋮ menu',
+      'Look for "Add to Home screen" or "Install app"',
+      'If "Install app" is not offered yet, keep using Pace and check again later',
     ],
   },
   chromium: {
     intro: 'Your browser supports installing Pace as an app.',
     steps: [
-      'Click the ⋮ menu in the top right',
-      'Select "Save and Share" → "Install Pace…"',
-      'Confirm to add it to your apps',
+      'Open the browser menu',
+      'Choose the browser\'s "Install Pace" or "Install app" option',
+      'Confirm the installation',
     ],
   },
   other: {
     intro: 'Look for an "Install app" or "Add to Home Screen" option in your browser\'s menu.',
     steps: [
       'Open your browser\'s menu',
-      'Look for "Install app", "Add to Home Screen", or "Pin to…"',
+      'Look for "Install app", "Add to Home Screen", or a similar option',
     ],
   },
 }
