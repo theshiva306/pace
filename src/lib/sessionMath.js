@@ -58,8 +58,28 @@ function liveSinceBoundary(session, now, boundaryMs) {
   return Math.max(0, (now - clippedStart) / 1000)
 }
 
+// Sessions that existed before this banking system shipped have no
+// bankedDayId/bankedWeekId yet — falling straight through to "banked = 0"
+// for those would make an already-paused pre-existing session's real,
+// already-earned time vanish from today's/this week's live number until
+// its next pause/resume happens to populate real values. Falls back to
+// reconstructing from the single cumulative pause counter instead: exact
+// whenever the *current* pause doesn't itself straddle the boundary
+// (session paused this side of midnight/Monday — the ordinary case), and
+// still correctly yields 0 for a pause that started before the boundary
+// and is still ongoing (focusSeconds is time-invariant while paused, so
+// both terms below come out equal). Only wrong for the narrower case
+// this whole system was built to fix — a pause that itself spans the
+// boundary and has since been *resumed* — for pre-existing data
+// specifically; that self-heals the moment that session's next pause or
+// break banks a real, precise value going forward.
+function legacyBoundaryFallback(session, now, boundaryMs) {
+  return Math.max(0, focusSeconds(session, now) - focusSeconds(session, boundaryMs))
+}
+
 export function todayFocusSeconds(session, now) {
   if (!session?.startedAt) return 0
+  if (session.bankedDayId == null) return Math.floor(legacyBoundaryFallback(session, now, startOfDayMs(now)))
   const todayId = dayId(new Date(now))
   const banked = session.bankedDayId === todayId ? Math.max(0, Number(session.bankedDaySeconds) || 0) : 0
   const ongoing = liveSinceBoundary(session, now, startOfDayMs(now))
@@ -68,9 +88,11 @@ export function todayFocusSeconds(session, now) {
 
 export function thisWeekFocusSeconds(session, now) {
   if (!session?.startedAt) return 0
+  const weekBoundaryMs = weekStart(0, new Date(now)).getTime()
+  if (session.bankedWeekId == null) return Math.floor(legacyBoundaryFallback(session, now, weekBoundaryMs))
   const weekId = isoWeekId(new Date(now))
   const banked = session.bankedWeekId === weekId ? Math.max(0, Number(session.bankedWeekSeconds) || 0) : 0
-  const ongoing = liveSinceBoundary(session, now, weekStart(0, new Date(now)).getTime())
+  const ongoing = liveSinceBoundary(session, now, weekBoundaryMs)
   return Math.floor(banked + ongoing)
 }
 
