@@ -12,7 +12,8 @@ import GroupIcon from '../components/GroupIcon'
 import { GroupHeaderSkeleton } from '../components/Skeleton'
 import Sheet from '../components/Sheet'
 import Button from '../components/Button'
-import { ChevronLeft, ChevronDown, CopyIcon, ShareIcon, SendIcon, SettingsIcon, ExitIcon, TrashIcon, InviteIcon, LeagueIcon, PlusIcon } from '../components/icons'
+import { Live, TierBadge } from '../components/LiveView'
+import { ChevronLeft, ChevronDown, CopyIcon, ShareIcon, SendIcon, SettingsIcon, ExitIcon, TrashIcon, InviteIcon, LeagueIcon } from '../components/icons'
 
 const TABS = ['Leaderboard', 'Live', 'Chat']
 const WEEKS_BACK = 4
@@ -148,25 +149,62 @@ function getLeaderboardRankDisplay(seconds, index) {
   if (seconds <= 0) return '—'
   return index + 1
 }
-function Leaderboard({ memberList, totals, currentUid, week, onOpenWeekPicker, onSelectMember }) { const ranked = [...memberList].map((m) => ({ ...m, seconds: totals[m.uid] || 0 })).sort((a, b) => b.seconds - a.seconds); const currentSeconds = totals[currentUid] || 0; const mine = currentSeconds > 0 ? leagueStatus(ranked, currentUid, { final: !week.isCurrent }) : null; return <div className="animate-fade-in"><div className="flex items-center justify-between mb-6 gap-3"><button onClick={onOpenWeekPicker} className="flex items-center gap-1.5 text-left"><div><div className="text-sm font-semibold tracking-tight">{week.label}</div><div className="text-[11px] text-text-faint">{week.isCurrent ? `Ends in ${week.daysLeft} day${week.daysLeft === 1 ? '' : 's'}` : 'Session ended'}</div></div><ChevronDown className="text-text-faint mt-2.5" /></button>{mine && <div className="flex items-center gap-2 shrink-0"><span className={`w-6 h-6 rounded-[7px] flex items-center justify-center shrink-0 ${mine.chipClass}`}><LeagueIcon width={14} height={14} className="text-bg" /></span><div className="text-right"><div className={`text-xs font-semibold tracking-wide leading-tight ${mine.textClass}`}>{mine.name} league</div><div className="text-[11px] text-text-faint leading-tight">{mine.detail}</div></div></div>}</div><div className="flex flex-col">{ranked.map((m, i) => { const tier = m.seconds > 0 && i < 3 ? LEAGUES[i] : null; return <button key={m.uid} onClick={() => onSelectMember(m.uid)} className={`flex items-center gap-4 py-3 border-b border-border-soft last:border-0 text-left ${m.uid === currentUid ? 'bg-accent-soft/40 -mx-3 px-3 rounded-xl' : ''}`}><span className="w-7 flex items-center justify-center text-sm text-text-faint tabular-nums">{getLeaderboardRankDisplay(m.seconds, i)}</span><div className="relative"><Avatar name={m.displayName} photoURL={m.photoURL} size="sm" tier={tier} /><TierBadge tier={tier} size="sm" /></div><span className="flex-1 text-sm font-medium truncate">{m.displayName}</span><span className="text-sm tabular-nums text-text-dim">{formatDuration(m.seconds)}</span></button> })}</div></div> }
-export function Live({ memberList, live, totals, weekly, currentUid, onSelectMember, onInvite }) { const liveMembers = memberList.filter((m) => { const status = live[m.uid]?.status; return status === 'active' || status === 'paused' || status === 'onBreak' }); const idleMembers = memberList.filter((m) => !liveMembers.some((x) => x.uid === m.uid)); const ranked = [...memberList].map((m) => ({ ...m, seconds: weekly?.[m.uid] || 0 })).sort((a, b) => b.seconds - a.seconds); const tierFor = (uid) => { const status = weekly?.[uid] > 0 ? leagueStatus(ranked, uid) : null; return status && status.name !== 'Unranked' ? status : null }; return <div className="animate-fade-in">
-  <SectionDivider dotClassName="bg-live" label={`${liveMembers.length} focusing`} labelClassName="text-live" />
-  <div className="grid grid-cols-3 gap-3 mb-8">
-    <InviteTile onClick={onInvite} />
-    {liveMembers.map((m) => { const status = live[m.uid]?.status; const paused = status === 'paused' || status === 'onBreak'; return <LiveTile key={m.uid} member={m} seconds={totals[m.uid] || 0} self={m.uid === currentUid} paused={paused} tier={tierFor(m.uid)} onClick={() => onSelectMember(m.uid)} /> })}
-  </div>
-  {idleMembers.length > 0 && <>
-    <SectionDivider dotClassName="bg-text-faint/60" label="Not focusing" labelClassName="text-text-dim" />
-    <div className="grid grid-cols-3 gap-3">
-      {idleMembers.map((m) => <IdleTile key={m.uid} member={m} seconds={totals[m.uid] || 0} self={m.uid === currentUid} tier={tierFor(m.uid)} onClick={() => onSelectMember(m.uid)} />)}
+function Leaderboard({ memberList, totals, currentUid, week, onOpenWeekPicker, onSelectMember }) {
+  const ranked = [...memberList]
+    .map((m) => ({ ...m, seconds: totals[m.uid] || 0 }))
+    .sort((a, b) => b.seconds - a.seconds)
+  const currentSeconds = totals[currentUid] || 0
+  const mine = currentSeconds > 0 ? leagueStatus(ranked, currentUid, { final: !week.isCurrent }) : null
+
+  return (
+    <div className="animate-fade-in">
+      <div className="flex items-center justify-between mb-6 gap-3">
+        <button onClick={onOpenWeekPicker} className="flex items-center gap-1.5 text-left">
+          <div>
+            <div className="text-sm font-semibold tracking-tight">{week.label}</div>
+            <div className="text-[11px] text-text-faint">
+              {week.isCurrent ? `Ends in ${week.daysLeft} day${week.daysLeft === 1 ? '' : 's'}` : 'Session ended'}
+            </div>
+          </div>
+          <ChevronDown className="text-text-faint mt-2.5" />
+        </button>
+        {mine && (
+          <div className="flex items-center gap-2 shrink-0">
+            <span className={`w-6 h-6 rounded-[7px] flex items-center justify-center shrink-0 ${mine.chipClass}`}>
+              <LeagueIcon width={14} height={14} className="text-bg" />
+            </span>
+            <div className="text-right">
+              <div className={`text-xs font-semibold tracking-wide leading-tight ${mine.textClass}`}>{mine.name} league</div>
+              <div className="text-[11px] text-text-faint leading-tight">{mine.detail}</div>
+            </div>
+          </div>
+        )}
+      </div>
+      <div className="flex flex-col">
+        {ranked.map((m, i) => {
+          const tier = m.seconds > 0 && i < 3 ? LEAGUES[i] : null
+          return (
+            <button
+              key={m.uid}
+              onClick={() => onSelectMember(m.uid)}
+              className={`flex items-center gap-4 py-3 border-b border-border-soft last:border-0 text-left ${m.uid === currentUid ? 'bg-accent-soft/40 -mx-3 px-3 rounded-xl' : ''}`}
+            >
+              <span className="w-7 flex items-center justify-center text-sm text-text-faint tabular-nums">
+                {getLeaderboardRankDisplay(m.seconds, i)}
+              </span>
+              <div className="relative">
+                <Avatar name={m.displayName} photoURL={m.photoURL} size="sm" tier={tier} />
+                <TierBadge tier={tier} size="sm" />
+              </div>
+              <span className="flex-1 text-sm font-medium truncate">{m.displayName}</span>
+              <span className="text-sm tabular-nums text-text-dim">{formatDuration(m.seconds)}</span>
+            </button>
+          )
+        })}
+      </div>
     </div>
-  </>}
-</div> }
-function SectionDivider({ label, dotClassName, labelClassName }) { return <div className="flex items-center gap-2.5 mb-4"><span className={`w-2 h-2 rounded-full shrink-0 ${dotClassName}`} aria-hidden /><span className={`text-sm font-medium shrink-0 ${labelClassName}`}>{label}</span><span className="flex-1 border-t border-dashed border-border-soft" aria-hidden /></div> }
-function TierBadge({ tier, size = 'md' }) { if (!tier) return null; const box = size === 'sm' ? 'w-[13px] h-[13px] rounded-[4px] -bottom-0.5 -right-1.5' : 'w-[16px] h-[16px] rounded-[5px] -bottom-0.5 -right-2' ; const icon = size === 'sm' ? 8 : 10; return <span className={`absolute flex items-center justify-center shadow-sm shadow-black/40 ${box} ${tier.chipClass}`}><LeagueIcon width={icon} height={icon} className="text-bg" /></span> }
-function InviteTile({ onClick }) { return <button onClick={onClick} className="flex flex-col items-center gap-2 bg-surface border border-dashed border-border-soft rounded-2xl py-4"><div className="w-10 h-10 rounded-full border border-dashed border-border-soft flex items-center justify-center text-text-faint"><PlusIcon /></div><span className="text-xs text-text-faint leading-tight px-1 text-center">Invite a friend</span></button> }
-function LiveTile({ member, seconds, self, paused, tier, onClick }) { return <button onClick={onClick} className={`flex flex-col items-center gap-2 bg-surface border border-border rounded-2xl py-4 ${paused ? 'opacity-55' : ''}`}><div className="relative"><Avatar name={member.displayName} photoURL={member.photoURL} size="md" live={!paused} showDot={false} tier={tier} /><TierBadge tier={tier} /></div><span className="text-xs font-medium truncate max-w-full px-1">{self ? 'You' : member.displayName}</span><span className={`text-xs tabular-nums ${paused ? 'text-text-faint' : 'text-live'}`}>{formatDuration(seconds)}</span></button> }
-function IdleTile({ member, seconds, self, tier, onClick }) { return <button onClick={onClick} className="flex flex-col items-center gap-2 bg-surface border border-border rounded-2xl py-4 opacity-70"><div className="relative"><Avatar name={member.displayName} photoURL={member.photoURL} size="md" tier={tier} /><TierBadge tier={tier} /></div><span className="text-xs font-medium text-text-dim truncate max-w-full px-1">{self ? 'You' : member.displayName}</span><span className="text-xs tabular-nums text-text-faint">{formatDuration(seconds)}</span></button> }
+  )
+}
 
 const CHAT_EMOJIS = ['😀','😂','🤣','😊','😍','🥳','😎','😭','😅','😮','😡','❤️','🔥','👍','👏','🙏','💯','✨','🎯','💪','📚','⏱️','🚀','😴','🤝','🙌','💀','🤔','👀','😇','❤️‍🔥','⭐']
 

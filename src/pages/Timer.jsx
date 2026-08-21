@@ -13,7 +13,7 @@ import {
 import { loadTimerSettings, saveTimerSettings } from '../lib/timerSettings'
 import { fireAction } from '../lib/fireAction'
 import { isStaleSession } from '../lib/staleSession'
-import { Live } from './GroupDetail'
+import { Live } from '../components/LiveView'
 import { TimerSkeleton } from '../components/Skeleton'
 import Sheet from '../components/Sheet'
 import Button from '../components/Button'
