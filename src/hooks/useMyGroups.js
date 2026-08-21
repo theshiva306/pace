@@ -7,6 +7,10 @@ import { isCurrentlyLive } from '../lib/staleSession'
 // derived from each member's user-owned active session.
 export function useMyGroups(groupIds) {
   const [summaries, setSummaries] = useState({})
+  // Deliberately keyed on content, not array identity — a new groupIds
+  // array with the same ids shouldn't tear down and recreate every
+  // subscription below.
+  const groupIdsKey = JSON.stringify(groupIds)
 
   useEffect(() => {
     const unsubs = []
@@ -66,7 +70,7 @@ export function useMyGroups(groupIds) {
     })
 
     return () => unsubs.forEach((u) => u())
-  }, [JSON.stringify(groupIds)])
+  }, [groupIdsKey])
 
   return groupIds.map((id) => ({ id, ...(summaries[id] || {}) }))
 }

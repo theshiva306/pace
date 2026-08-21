@@ -51,7 +51,7 @@ export default function GroupDetail() {
     <Sheet open={!!memberSheetUid} onClose={() => setMemberSheetUid(null)}><MemberDetailContent stats={memberSheetStats} self={memberSheetUid === user.uid} /></Sheet>
     <Sheet open={weekPickerOpen} onClose={() => setWeekPickerOpen(false)}><WeekPickerContent selected={weekOffset} onSelect={(offset) => { setWeekOffset(offset); setWeekPickerOpen(false) }} /></Sheet>
     <Sheet open={inviteOpen} onClose={() => setInviteOpen(false)}><InviteSheetContent groupId={groupId} /></Sheet>
-    <Sheet open={settingsOpen} onClose={() => setSettingsOpen(false)}><SettingsSheetContent group={group} memberList={memberList} currentUid={user.uid} isAdmin={isAdmin} busy={busy} onRename={handleRename} onRemoveMember={handleRemoveMember} onRequestRemove={setRemoveConfirmUid} onRequestLeave={() => { setSettingsOpen(false); setLeaveConfirmOpen(true) }} onRequestDelete={() => { setSettingsOpen(false); setDeleteConfirmOpen(true) }} /></Sheet>
+    <Sheet open={settingsOpen} onClose={() => setSettingsOpen(false)}><SettingsSheetContent group={group} memberList={memberList} isAdmin={isAdmin} busy={busy} onRename={handleRename} onRequestRemove={setRemoveConfirmUid} onRequestLeave={() => { setSettingsOpen(false); setLeaveConfirmOpen(true) }} onRequestDelete={() => { setSettingsOpen(false); setDeleteConfirmOpen(true) }} /></Sheet>
     <Sheet open={leaveConfirmOpen} onClose={() => setLeaveConfirmOpen(false)}><ConfirmSheet title="Leave this group?" subtitle={isAdmin && memberList.length > 1 ? "You're the admin — another member will be promoted to take over." : isAdmin ? "You're the last member — the group will be deleted." : "You'll need a new invite link to rejoin."} confirmLabel="Leave group" busy={busy} onConfirm={handleLeave} onCancel={() => setLeaveConfirmOpen(false)} /></Sheet>
     <Sheet open={deleteConfirmOpen} onClose={() => setDeleteConfirmOpen(false)}><ConfirmSheet title="Delete this group?" subtitle="This removes it for everyone and can't be undone." confirmLabel="Delete group" busy={busy} onConfirm={handleDelete} onCancel={() => setDeleteConfirmOpen(false)} /></Sheet>
     <Sheet open={!!removeConfirmUid} onClose={() => setRemoveConfirmUid(null)}><ConfirmSheet title="Remove this member?" subtitle="They will leave this group and will need a new invite to rejoin." confirmLabel="Remove member" busy={busy} onConfirm={async () => { await handleRemoveMember(removeConfirmUid); setRemoveConfirmUid(null) }} onCancel={() => setRemoveConfirmUid(null)} /></Sheet>
@@ -61,7 +61,7 @@ export default function GroupDetail() {
 function ConfirmSheet({ title, subtitle, confirmLabel, busy, onConfirm, onCancel }) { return <div className="flex flex-col items-center text-center"><div className="text-base font-medium mb-2">{title}</div><p className="text-xs text-text-faint mb-8">{subtitle}</p><div className="w-full flex flex-col gap-2.5"><Button variant="danger" className="w-full" onClick={onConfirm} disabled={busy}>{confirmLabel}</Button><Button variant="text" className="w-full" onClick={onCancel}>Cancel</Button></div></div> }
 function WeekPickerContent({ selected, onSelect }) { const weeks = Array.from({ length: WEEKS_BACK }, (_, i) => weekInfo(i)); return <div className="flex flex-col text-left"><div className="text-[13px] tracking-[0.25em] text-text-faint mb-5 text-center">SELECT WEEK</div><div className="flex flex-col gap-1.5">{weeks.map((w) => <button key={w.weekId} onClick={() => onSelect(w.weeksAgo)} className={`flex items-center justify-between rounded-xl px-4 py-3 text-sm transition-colors ${w.weeksAgo === selected ? 'bg-elevated text-text' : 'text-text-dim hover:bg-elevated/50'}`}><span className="font-medium">{w.label}</span><span className="text-xs text-text-faint">{w.isCurrent ? `Ends in ${w.daysLeft} day${w.daysLeft === 1 ? '' : 's'}` : 'Session ended'}</span></button>)}</div></div> }
 function InviteSheetContent({ groupId }) { const [copied, setCopied] = useState(false); const link = groupId ? `${window.location.origin}${window.location.pathname}#/join/${groupId}` : ''; async function handleCopy() { try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1600) } catch {} } function handleShare() { if (navigator.share) navigator.share({ url: link, text: 'Join my group on Pace' }).catch(() => {}); else handleCopy() } return <div className="flex flex-col items-center text-center"><div className="text-[13px] tracking-[0.25em] text-text-faint mb-5">INVITE A FRIEND</div><div className="w-full bg-elevated border border-border rounded-xl px-4 py-3 mb-6 text-xs text-text-dim break-all">{link}</div><div className="w-full flex gap-2.5"><Button variant="primary" className="flex-1" onClick={handleCopy}><CopyIcon /> {copied ? 'Copied' : 'Copy link'}</Button><Button variant="ghost" className="flex-1" onClick={handleShare}><ShareIcon /> Share</Button></div></div> }
-function SettingsSheetContent({ group, memberList, currentUid, isAdmin, busy, onRename, onRemoveMember, onRequestLeave, onRequestDelete, onRequestRemove }) {
+function SettingsSheetContent({ group, memberList, isAdmin, busy, onRename, onRequestLeave, onRequestDelete, onRequestRemove }) {
   const [name, setName] = useState(group?.name || '')
   useEffect(() => { setName(group?.name || '') }, [group?.name])
   const dirty = !!name.trim() && name.trim() !== group?.name
@@ -92,8 +92,58 @@ function SettingsSheetContent({ group, memberList, currentUid, isAdmin, busy, on
     <section className="mb-2 pt-5 border-t border-border-soft"><Button variant="ghost" className="w-full justify-start" onClick={onRequestLeave}><ExitIcon /> Leave group</Button>{isAdmin && <Button variant="danger" className="w-full mt-2 justify-start" onClick={onRequestDelete}><TrashIcon /> Delete group</Button>}</section>
   </div>
 }
-function computeMemberStats(memberList, weeklyTotals, sessionCounts, uid) { if (!uid) return null; const ranked = [...memberList].map((m) => ({ ...m, seconds: weeklyTotals[m.uid] || 0 })).sort((a, b) => b.seconds - a.seconds); const idx = ranked.findIndex((m) => m.uid === uid); if (idx === -1) return null; const m = ranked[idx]; const sessions = sessionCounts[uid] || 0; return { uid: m.uid, displayName: m.displayName, photoURL: m.photoURL, rank: idx + 1, seconds: m.seconds, sessions, avgSeconds: sessions > 0 ? Math.round(m.seconds / sessions) : 0, league: m.seconds > 0 && idx < 3 ? LEAGUES[idx] : null, rank: m.seconds > 0 ? idx + 1 : null } }
-function MemberDetailContent({ stats, self }) { if (!stats) return <div className="py-10 text-center text-sm text-text-dim">Loading…</div>; return <div className="flex flex-col items-center text-center"><Avatar name={stats.displayName} photoURL={stats.photoURL} size="lg" className="mb-4" /><div className="text-lg font-semibold mb-2">{self ? 'You' : stats.displayName}</div><div className="flex items-center gap-1.5 text-xs text-text-dim mb-6">{stats.league && <LeagueIcon width="16" height="16" className={stats.league.textClass} />}<span>{stats.rank ? `Rank ${stats.rank}` : '—'}</span></div><div className="w-full bg-elevated border border-border rounded-2xl p-5"><div className="text-center pb-4 mb-4 border-b border-border-soft"><div className="text-2xl font-display font-semibold tabular-nums">{formatDuration(stats.seconds)}</div><div className="text-xs text-text-faint mt-1">This week's focus</div></div><div className="flex"><div className="flex-1 text-center"><div className="text-lg font-semibold tabular-nums">{stats.sessions}</div><div className="text-xs text-text-faint mt-1">No. of sessions</div></div><div className="flex-1 text-center border-l border-border-soft"><div className="text-lg font-semibold tabular-nums">{stats.sessions > 0 ? formatDuration(stats.avgSeconds) : '—'}</div><div className="text-xs text-text-faint mt-1">Avg focus per session</div></div></div></div></div> }
+function computeMemberStats(memberList, weeklyTotals, sessionCounts, uid) {
+  if (!uid) return null
+  const ranked = [...memberList]
+    .map((m) => ({ ...m, seconds: weeklyTotals[m.uid] || 0 }))
+    .sort((a, b) => b.seconds - a.seconds)
+  const idx = ranked.findIndex((m) => m.uid === uid)
+  if (idx === -1) return null
+  const m = ranked[idx]
+  const sessions = sessionCounts[uid] || 0
+  return {
+    uid: m.uid,
+    displayName: m.displayName,
+    photoURL: m.photoURL,
+    seconds: m.seconds,
+    sessions,
+    avgSeconds: sessions > 0 ? Math.round(m.seconds / sessions) : 0,
+    league: m.seconds > 0 && idx < 3 ? LEAGUES[idx] : null,
+    rank: m.seconds > 0 ? idx + 1 : null,
+  }
+}
+
+function MemberDetailContent({ stats, self }) {
+  if (!stats) return <div className="py-10 text-center text-sm text-text-dim">Loading…</div>
+  return (
+    <div className="flex flex-col items-center text-center">
+      <Avatar name={stats.displayName} photoURL={stats.photoURL} size="lg" className="mb-4" />
+      <div className="text-lg font-semibold mb-2">{self ? 'You' : stats.displayName}</div>
+      <div className="flex items-center gap-1.5 text-xs text-text-dim mb-6">
+        {stats.league && <LeagueIcon width="16" height="16" className={stats.league.textClass} />}
+        <span>{stats.rank ? `Rank ${stats.rank}` : '—'}</span>
+      </div>
+      <div className="w-full bg-elevated border border-border rounded-2xl p-5">
+        <div className="text-center pb-4 mb-4 border-b border-border-soft">
+          <div className="text-2xl font-display font-semibold tabular-nums">{formatDuration(stats.seconds)}</div>
+          <div className="text-xs text-text-faint mt-1">This week's focus</div>
+        </div>
+        <div className="flex">
+          <div className="flex-1 text-center">
+            <div className="text-lg font-semibold tabular-nums">{stats.sessions}</div>
+            <div className="text-xs text-text-faint mt-1">No. of sessions</div>
+          </div>
+          <div className="flex-1 text-center border-l border-border-soft">
+            <div className="text-lg font-semibold tabular-nums">
+              {stats.sessions > 0 ? formatDuration(stats.avgSeconds) : '—'}
+            </div>
+            <div className="text-xs text-text-faint mt-1">Avg focus per session</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
 function getLeaderboardRankDisplay(seconds, index) {
   if (seconds <= 0) return '—'
   return index + 1

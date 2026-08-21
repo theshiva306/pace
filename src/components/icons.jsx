@@ -89,20 +89,6 @@ export function SettingsIcon(props) {
   )
 }
 
-export function RefreshIcon(props) {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" {...props}>
-      <path
-        d="M19 12a7 7 0 10-2.3 5.2M19 12v-4.5M19 12h-4.5"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  )
-}
-
 export function ExitIcon(props) {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" {...props}>

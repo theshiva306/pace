@@ -1,5 +1,5 @@
-import { dayId } from './day'
-import { isoWeekId, weekStart } from './week'
+import { dayId } from './day.js'
+import { isoWeekId, weekStart } from './week.js'
 
 // Was independently duplicated in useGroup.js and usePolledValue.js —
 // that's exactly how the earlier staleness bug ended up half-fixed (one

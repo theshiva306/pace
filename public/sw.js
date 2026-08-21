@@ -11,10 +11,13 @@
 //     (index.html) so the app still boots and can restore state from
 //     localStorage, instead of the browser showing its own offline error.
 //
-// CACHE_VERSION is bumped whenever this file changes so old, possibly
-// stale caches get cleared out on the next visit — never serves last
-// year's bundle forever.
-const CACHE_VERSION = 'pace-v1'
+// CACHE_VERSION is stamped with a fresh build ID at build time (see
+// scripts/stamp-sw.js, run automatically after `vite build`) so every
+// deploy gets its own cache namespace — the activate handler below then
+// deletes any other version it finds, so old deploys' cached assets
+// don't just pile up in storage forever as new hashed bundle files ship
+// on top of them build after build.
+const CACHE_VERSION = 'pace-__BUILD_ID__'
 
 self.addEventListener('install', () => {
   self.skipWaiting()

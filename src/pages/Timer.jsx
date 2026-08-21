@@ -23,7 +23,6 @@ import WheelColumn from '../components/WheelColumn'
 import { ChevronRight, PinIcon, ExpandIcon, CollapseIcon } from '../components/icons'
 import useFullscreen from '../hooks/useFullscreen'
 
-const LIVE_POLL_MS = 60000
 
 const HOURS = Array.from({ length: 13 }, (_, i) => i) // 0-12
 const MINUTES = Array.from({ length: 12 }, (_, i) => i * 5) // 0,5,...,55
@@ -546,10 +545,10 @@ function PinnedGroupPill({ summary, onOpen, onPinSomething }) {
 // group page's own Live tab.
 function PinnedGroupLivePanel({ groupId, currentUid, onOpenGroup }) {
   const todayId = dayId()
-  const name = usePolledValue(`groups/${groupId}/name`, { intervalMs: LIVE_POLL_MS })
-  const members = usePolledValue(`groups/${groupId}/members`, { intervalMs: LIVE_POLL_MS })
-  const live = usePolledValue(`groups/${groupId}/live`, { intervalMs: LIVE_POLL_MS })
-  const daily = usePolledValue(`groups/${groupId}/dailyTotals/${todayId}`, { intervalMs: LIVE_POLL_MS })
+  const name = usePolledValue(`groups/${groupId}/name`)
+  const members = usePolledValue(`groups/${groupId}/members`)
+  const live = usePolledValue(`groups/${groupId}/live`)
+  const daily = usePolledValue(`groups/${groupId}/dailyTotals/${todayId}`)
 
   const memberList = Object.entries(members.value || {}).map(([uid, m]) => ({ uid, ...m }))
 

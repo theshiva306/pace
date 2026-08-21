@@ -13,7 +13,7 @@ import { todayFocusSeconds, thisWeekFocusSeconds } from '../lib/sessionMath'
 // so removed/left members disappear from Live immediately, not on a delay.
 // The 1s interval below only recomputes an in-progress session's elapsed
 // time locally (startedAt is fixed; "now" isn't), it does not refetch data.
-export function usePolledValue(path, { intervalMs = 60000, enabled = true } = {}) {
+export function usePolledValue(path, { enabled = true } = {}) {
   const [value, setValue] = useState(undefined)
   const [refreshing, setRefreshing] = useState(false)
   const [updatedAt, setUpdatedAt] = useState(null)

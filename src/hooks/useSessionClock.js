@@ -4,7 +4,7 @@ import { useServerOffset } from './useServerOffset'
 // Ticks once a second and derives every time value for an active session
 // straight from its raw timestamps + accumulated pause time, rather than
 // accumulating anything locally — so refresh / tab-switch / a stale tab
-// left open all stay correct, same principle as the old useElapsed.
+// left open all stay correct.
 //
 // session: { startedAt, status: 'active'|'paused'|'onBreak', pausedAt,
 //            pausedSeconds, breakDurationSeconds }
@@ -14,6 +14,10 @@ export function useSessionClock(session) {
 
   useEffect(() => {
     if (!session) return
+    // Deliberately keyed on sessionId alone, not the whole session object
+    // (or `session.status`, etc.) — pause/resume/break changes shouldn't
+    // tear down and restart this interval; it only needs to run once per
+    // distinct session and keep ticking regardless of status changes.
     const id = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(id)
   }, [session?.sessionId])
