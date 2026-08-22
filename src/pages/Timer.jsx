@@ -4,9 +4,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useActiveSession } from '../hooks/useActiveSession'
 import { useSessionClock } from '../hooks/useSessionClock'
 import { useMyGroups } from '../hooks/useMyGroups'
-import { usePolledValue } from '../hooks/usePolledValue'
-import { formatClock, formatDuration, formatMessageTime } from '../lib/format'
-import { dayId } from '../lib/day'
+import { formatDuration } from '../lib/format'
 import {
   startSession, pauseSession, resumeSession, startBreak, endBreak, saveSession, clearActiveSession,
 } from '../lib/sessions'
@@ -14,14 +12,16 @@ import { loadTimerSettings, saveTimerSettings } from '../lib/timerSettings'
 import { fireAction } from '../lib/fireAction'
 import { isStaleSession } from '../lib/staleSession'
 import { playCompletionAlert } from '../lib/completionAlert'
-import { Live } from '../components/LiveView'
 import { TimerSkeleton } from '../components/Skeleton'
+import { PinnedGroupPill, PinnedGroupLivePanel } from '../components/PinnedGroupPanel'
+import { RingTimer, RingLink } from '../components/RingTimer'
+import { SaveSessionScreen } from '../components/SaveSessionScreen'
 import Sheet from '../components/Sheet'
 import Button from '../components/Button'
 import SegmentedControl from '../components/SegmentedControl'
 import Stepper from '../components/Stepper'
 import WheelColumn from '../components/WheelColumn'
-import { ChevronRight, PinIcon, ExpandIcon, CollapseIcon } from '../components/icons'
+import { ChevronRight, ExpandIcon, CollapseIcon } from '../components/icons'
 import useFullscreen from '../hooks/useFullscreen'
 
 
@@ -534,167 +534,6 @@ export default function Timer() {
 // live count and jumps straight to that group's Live tab on tap. If
 // nothing is pinned, collapses to a quiet text link pointing at Groups
 // instead of a pill, so there's nothing implying data that isn't there.
-function PinnedGroupPill({ summary, onOpen, onPinSomething }) {
-  if (!summary) {
-    return (
-      <button
-        onClick={onPinSomething}
-        className="flex items-center gap-1.5 text-xs text-text-faint mb-8 py-1"
-      >
-        <PinIcon />
-        <span className="underline decoration-dotted underline-offset-4">Pin a group to see who's live</span>
-      </button>
-    )
-  }
-
-  const liveCount = summary.liveCount ?? 0
-
-  return (
-    <button
-      onClick={onOpen}
-      className="flex items-center gap-2.5 bg-elevated border border-border rounded-full pl-2.5 pr-3.5 py-2 mb-8 max-w-[86vw] active:scale-[0.97] transition-transform"
-    >
-      <span className="relative flex items-center justify-center w-4 h-4 shrink-0">
-        {liveCount > 0 && <span className="absolute inset-0 rounded-full bg-live/25 animate-breathe" />}
-        <span className={`relative w-1.5 h-1.5 rounded-full ${liveCount > 0 ? 'bg-live' : 'bg-text-faint'}`} />
-      </span>
-      <span className="text-xs font-semibold truncate max-w-[38vw]">{summary.name || '—'}</span>
-      <span className="w-px h-3 bg-border shrink-0" />
-      <span className="text-xs text-text-dim whitespace-nowrap">{liveCount} focusing</span>
-      <ChevronRight className="w-3.5 h-3.5 text-text-faint shrink-0" />
-    </button>
-  )
-}
-
-// Content of the pinned-group popup/sheet: the pinned group's Live view
-// (who's focusing + today's totals), reusing GroupDetail's Live component
-// so the two stay visually identical. Polled, not real-time, same as the
-// group page's own Live tab.
-function PinnedGroupLivePanel({ groupId, currentUid, onOpenGroup }) {
-  const todayId = dayId()
-  const name = usePolledValue(`groups/${groupId}/name`)
-  const members = usePolledValue(`groups/${groupId}/members`)
-  const live = usePolledValue(`groups/${groupId}/live`)
-  const daily = usePolledValue(`groups/${groupId}/dailyTotals/${todayId}`)
-
-  const memberList = Object.entries(members.value || {}).map(([uid, m]) => ({ uid, ...m }))
-
-  function refresh() {
-    name.refresh()
-    members.refresh()
-    live.refresh()
-    daily.refresh()
-  }
-
-  return (
-    <div>
-      <div className="text-center font-display font-semibold uppercase text-sm tracking-tight mb-4 truncate">
-        {name.value || '—'}
-      </div>
-      <Live
-        memberList={memberList}
-        live={live.value || {}}
-        totals={daily.value || {}}
-        currentUid={currentUid}
-        onRefresh={refresh}
-        refreshing={name.refreshing || members.refreshing || live.refreshing || daily.refreshing}
-        updatedAt={live.updatedAt}
-      />
-      <button
-        onClick={onOpenGroup}
-        className="w-full text-center text-xs text-text-faint underline decoration-dotted underline-offset-4 mt-6"
-      >
-        Open full group page
-      </button>
-    </div>
-  )
-}
-
-// The main clock, framed by a circular ring. When `totalSeconds` is known
-// (countdown session, or a break with a fixed duration) the ring's arc
-// fills to show real progress. When it's null (stopwatch, or no session
-// yet) the ring stays a static outline — a frame, not a fake progress bar.
-// Sized against the smaller of the viewport's width and height (via CSS
-// min()), capped in px, so it's always prominent but can never force the
-// page to scroll — on a short desktop window it shrinks with the height,
-// not just the width. `children`, if given, renders as a small tappable
-// link inside the ring, under the digits (e.g. "Take a break").
-function RingTimer({ label, displaySeconds, totalSeconds, isPaused, accent, children }) {
-  const hasTotal = totalSeconds != null && totalSeconds > 0
-  const pct = hasTotal ? Math.min(1, Math.max(0, displaySeconds / totalSeconds)) : 0
-  const r = 46
-  const c = 2 * Math.PI * r
-  const dash = hasTotal ? c * pct : 0
-
-  const ringColor = !hasTotal
-    ? 'var(--color-border-soft)'
-    : isPaused
-      ? 'var(--color-text-faint)'
-      : 'var(--color-accent)'
-
-  const timeColor = isPaused ? 'text-text-faint' : accent || hasTotal ? 'text-accent' : 'text-text'
-
-  // A round line-cap on a dasharray that spans the full circumference (no
-  // progress target, or progress at exactly 100%) leaves a visible seam
-  // right where the path's start and end meet — the cap "pokes out"
-  // slightly past the seam. Flat caps have no such artifact and are
-  // indistinguishable from round ones once the circle is fully closed
-  // anyway, so only use round caps for a genuinely partial arc.
-  const isFullOrEmpty = !hasTotal || pct <= 0 || pct >= 1
-  const showProgress = hasTotal && pct > 0
-
-  return (
-    <div
-      className="relative flex items-center justify-center shrink-0"
-      style={{ width: 'min(62vw, 52svh, 300px)', aspectRatio: '1' }}
-    >
-      <svg
-        viewBox="0 0 100 100"
-        className="absolute inset-0 w-full h-full -rotate-90 overflow-visible pointer-events-none"
-      >
-        <circle cx="50" cy="50" r={r} fill="none" stroke="var(--color-border-soft)" strokeWidth="3" />
-        {showProgress && (
-          <circle
-            cx="50" cy="50" r={r} fill="none"
-            stroke={ringColor}
-            strokeWidth="3"
-            strokeLinecap={isFullOrEmpty ? 'butt' : 'round'}
-            strokeDasharray={`${dash} ${c}`}
-            className="transition-[stroke-dasharray] duration-500 ease-linear"
-          />
-        )}
-      </svg>
-      <div className="relative z-10 flex flex-col items-center justify-center w-[74%] px-1">
-        <div className="text-[11px] tracking-[0.28em] text-text-faint mb-2 whitespace-nowrap">
-          {label}
-        </div>
-        <div
-          className={`font-display font-semibold tabular-nums leading-none select-none whitespace-nowrap ${timeColor}`}
-          style={{ fontSize: 'clamp(1.9rem, 7.5vw, 2.9rem)' }}
-        >
-          {formatClock(displaySeconds)}
-        </div>
-        {children && <div className="mt-4">{children}</div>}
-      </div>
-    </div>
-  )
-}
-
-// A quiet, text-only action that lives inside the ring (e.g. "Take a
-// break" / "End break"). Underlined so it always reads as tappable;
-// brightens on hover so a mouse user gets a clear affordance too.
-function RingLink({ onClick, disabled, children }) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      className="text-[13px] font-medium text-text-dim underline decoration-dotted underline-offset-4 hover:text-accent transition-colors disabled:opacity-30 disabled:pointer-events-none"
-    >
-      {children}
-    </button>
-  )
-}
-
 function SettingsRow({ label, value, onClick }) {
   return (
     <button
@@ -707,39 +546,5 @@ function SettingsRow({ label, value, onClick }) {
         <ChevronRight />
       </span>
     </button>
-  )
-}
-
-function SaveSessionScreen({ stopped, busy, error, onSave, onDelete }) {
-  const timeRange = `${formatMessageTime(stopped.startedAtMs)} – ${formatMessageTime(stopped.endedAtMs)}`
-  return (
-    <div className="min-h-svh flex flex-col items-center justify-center px-8 text-center animate-fade-in">
-      <div className="text-[13px] tracking-[0.25em] text-text-faint mb-2">
-        {stopped.wasStale ? 'PAUSED SESSION FOUND' : 'SAVE SESSION'}
-      </div>
-      {stopped.wasStale && (
-        <p className="text-xs text-text-faint max-w-[240px] mb-4 leading-relaxed">
-          You paused this a while ago and it looks like it got left behind — save the time or discard it.
-        </p>
-      )}
-      <div className="text-xs text-text-faint mb-10">{timeRange}</div>
-      <div className="w-48 h-48 rounded-full border-4 border-live flex flex-col items-center justify-center mb-12">
-        <span className="font-display text-3xl font-semibold tabular-nums">{formatDuration(stopped.durationSeconds)}</span>
-        <span className="text-xs text-text-faint mt-1">Total focus</span>
-      </div>
-      {error && (
-        <p className="text-xs text-danger mb-4 max-w-[240px]">
-          Couldn't reach the server — check your connection and try again. Nothing's been lost yet.
-        </p>
-      )}
-      <div className="w-full max-w-xs flex flex-col gap-3">
-        <Button variant="primary" className="w-full" onClick={onSave} disabled={busy}>
-          {busy ? 'Saving…' : 'Save'}
-        </Button>
-        <button onClick={onDelete} disabled={busy} className="text-sm text-danger font-medium py-2 disabled:opacity-40">
-          Delete
-        </button>
-      </div>
-    </div>
   )
 }
