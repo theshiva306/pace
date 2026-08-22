@@ -13,6 +13,7 @@ import {
 import { loadTimerSettings, saveTimerSettings } from '../lib/timerSettings'
 import { fireAction } from '../lib/fireAction'
 import { isStaleSession } from '../lib/staleSession'
+import { playCompletionAlert } from '../lib/completionAlert'
 import { Live } from '../components/LiveView'
 import { TimerSkeleton } from '../components/Skeleton'
 import Sheet from '../components/Sheet'
@@ -91,6 +92,32 @@ export default function Timer() {
     }
     setStopped({ session, durationSeconds, startedAtMs, endedAtMs, wasStale: true })
   }, [session, clock.focusElapsed, user.uid, groupIds])
+
+  // Countdown mode had no completion handling at all before this — once
+  // the target was reached, the ring just clamped its display at 00:00
+  // and sat there forever while the underlying session kept running
+  // exactly like a stopwatch in the background, silently over-counting
+  // with zero indication anything had happened. Reuses the same
+  // save/discard flow a manual stop uses, so reaching the target behaves
+  // like finishing, not like nothing happened. Guarded so it only fires
+  // once per session, and skipped while paused/on a break — reaching the
+  // target during a pause shouldn't yank someone out of it; it fires the
+  // moment they're back to active with the effect re-running.
+  const targetReachedRef = useRef(false)
+  useEffect(() => {
+    if (!session || session.mode !== 'countdown') { targetReachedRef.current = false; return }
+    if (targetReachedRef.current) return
+    if (session.status !== 'active') return
+    if (clock.focusElapsed < session.targetSeconds) return
+    targetReachedRef.current = true
+    playCompletionAlert()
+    // handleConfirmStop intentionally omitted from deps — it's a fresh
+    // closure every render (reads busy/stopped/etc.), including it would
+    // just refire this effect on every unrelated re-render; the ref guard
+    // above is what actually prevents double-firing, not this array.
+    handleConfirmStop()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, clock.focusElapsed])
 
   async function handleStart(s) {
     if (busy || session) return
