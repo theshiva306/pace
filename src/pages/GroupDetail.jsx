@@ -37,61 +37,326 @@ export default function GroupDetail() {
   const memberList = Object.entries(members).map(([uid, m]) => ({ uid, ...m }))
   const isAdmin = group?.adminUid === user.uid
   const [memberSheetUid, setMemberSheetUid] = useState(null)
-  const memberSheetStats = useMemo(() => computeMemberStats(memberList, weekly || {}, sessionCounts || {}, memberSheetUid), [memberList, weekly, sessionCounts, memberSheetUid])
-  async function handleRename(name) { if (!name.trim() || busy) return; setBusy(true); try { await renameGroup({ groupId, name: name.trim() }) } finally { setBusy(false) } }
-  async function handleRemoveMember(targetUid) { if (busy) return; setBusy(true); try { await removeMember({ groupId, targetUid }) } finally { setBusy(false) } }
-  async function handleLeave() { if (busy) return; setBusy(true); try { await leaveGroup({ uid: user.uid, groupId }); setLeaveConfirmOpen(false); navigate('/groups') } finally { setBusy(false) } }
-  async function handleDelete() { if (busy) return; setBusy(true); try { await deleteGroup({ groupId, memberUids: memberList.map((m) => m.uid) }); setDeleteConfirmOpen(false); navigate('/groups') } finally { setBusy(false) } }
-  return <div className={`px-5 pt-[calc(env(safe-area-inset-top)+20px)] pb-6 max-w-md mx-auto md:max-w-2xl md:pt-14 flex flex-col ${tab === 'Chat' ? 'h-[var(--pace-viewport-height,100dvh)] min-h-0 overflow-hidden' : 'min-h-svh'}`}> 
-    <div className="flex items-center justify-between mb-4"><button onClick={() => navigate('/groups')} aria-label="Back" className="text-text-dim hover:text-text -ml-1.5 p-1.5"><ChevronLeft /></button><div className="flex items-center gap-2"><button onClick={() => setInviteOpen(true)} className="flex items-center gap-1.5 text-xs font-medium tracking-wide text-live border border-live/30 bg-live-soft rounded-full pl-3 pr-3.5 py-2"><InviteIcon /> Invite friends</button><button onClick={() => setSettingsOpen(true)} aria-label="Group settings" className="text-text-dim hover:text-text p-2 rounded-full border border-border bg-surface"><SettingsIcon /></button></div></div>
-    {group === undefined ? <GroupHeaderSkeleton /> : <div className="flex items-center gap-3.5 mb-6"><GroupIcon groupId={groupId} size="md" /><div className="flex-1 min-w-0"><div className="font-display font-semibold tracking-tight uppercase text-lg truncate">{group?.name || '—'}</div><div className="text-xs text-text-faint">{memberList.length} members</div></div></div>}
-    <div className="flex items-center gap-6 border-b border-border-soft mb-6">{TABS.map((t) => <button key={t} onClick={() => setTab(t)} className={`relative flex items-center gap-1.5 text-xs font-medium tracking-wide py-3 transition-colors ${tab === t ? 'text-text' : 'text-text-faint'}`}>{t === 'Live' && <span className="w-1.5 h-1.5 rounded-full bg-live" aria-hidden />}{t}{tab === t && <span className="absolute left-0 right-0 -bottom-px h-[2px] bg-text rounded-full" />}</button>)}</div>
-    {tab === 'Leaderboard' && <Leaderboard memberList={memberList} totals={weekly || {}} currentUid={user.uid} week={week} onOpenWeekPicker={() => setWeekPickerOpen(true)} onSelectMember={setMemberSheetUid} />}
-    {tab === 'Live' && <Live memberList={memberList} live={live || {}} totals={daily || {}} weekly={weekly || {}} currentUid={user.uid} onSelectMember={setMemberSheetUid} onInvite={() => setInviteOpen(true)} />}
-    {tab === 'Chat' && <Chat groupId={groupId} messages={messages} user={user} profile={profile} />}
-    <Sheet open={!!memberSheetUid} onClose={() => setMemberSheetUid(null)}><MemberDetailContent stats={memberSheetStats} self={memberSheetUid === user.uid} /></Sheet>
-    <Sheet open={weekPickerOpen} onClose={() => setWeekPickerOpen(false)}><WeekPickerContent selected={weekOffset} onSelect={(offset) => { setWeekOffset(offset); setWeekPickerOpen(false) }} /></Sheet>
-    <Sheet open={inviteOpen} onClose={() => setInviteOpen(false)}><InviteSheetContent groupId={groupId} /></Sheet>
-    <Sheet open={settingsOpen} onClose={() => setSettingsOpen(false)}><SettingsSheetContent group={group} memberList={memberList} isAdmin={isAdmin} busy={busy} onRename={handleRename} onRequestRemove={setRemoveConfirmUid} onRequestLeave={() => { setSettingsOpen(false); setLeaveConfirmOpen(true) }} onRequestDelete={() => { setSettingsOpen(false); setDeleteConfirmOpen(true) }} /></Sheet>
-    <Sheet open={leaveConfirmOpen} onClose={() => setLeaveConfirmOpen(false)}><ConfirmSheet title="Leave this group?" subtitle={isAdmin && memberList.length > 1 ? "You're the admin — another member will be promoted to take over." : isAdmin ? "You're the last member — the group will be deleted." : "You'll need a new invite link to rejoin."} confirmLabel="Leave group" busy={busy} onConfirm={handleLeave} onCancel={() => setLeaveConfirmOpen(false)} /></Sheet>
-    <Sheet open={deleteConfirmOpen} onClose={() => setDeleteConfirmOpen(false)}><ConfirmSheet title="Delete this group?" subtitle="This removes it for everyone and can't be undone." confirmLabel="Delete group" busy={busy} onConfirm={handleDelete} onCancel={() => setDeleteConfirmOpen(false)} /></Sheet>
-    <Sheet open={!!removeConfirmUid} onClose={() => setRemoveConfirmUid(null)}><ConfirmSheet title="Remove this member?" subtitle="They will leave this group and will need a new invite to rejoin." confirmLabel="Remove member" busy={busy} onConfirm={async () => { await handleRemoveMember(removeConfirmUid); setRemoveConfirmUid(null) }} onCancel={() => setRemoveConfirmUid(null)} /></Sheet>
-  </div>
+  const memberSheetStats = useMemo(
+    () => computeMemberStats(memberList, weekly || {}, sessionCounts || {}, memberSheetUid),
+    [memberList, weekly, sessionCounts, memberSheetUid],
+  )
+
+  async function handleRename(name) {
+    if (!name.trim() || busy) return
+    setBusy(true)
+    try {
+      await renameGroup({ groupId, name: name.trim() })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleRemoveMember(targetUid) {
+    if (busy) return
+    setBusy(true)
+    try {
+      await removeMember({ groupId, targetUid })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleLeave() {
+    if (busy) return
+    setBusy(true)
+    try {
+      await leaveGroup({ uid: user.uid, groupId })
+      setLeaveConfirmOpen(false)
+      navigate('/groups')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleDelete() {
+    if (busy) return
+    setBusy(true)
+    try {
+      await deleteGroup({ groupId, memberUids: memberList.map((m) => m.uid) })
+      setDeleteConfirmOpen(false)
+      navigate('/groups')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className={`px-5 pt-[calc(env(safe-area-inset-top)+20px)] pb-6 max-w-md mx-auto md:max-w-2xl md:pt-14 flex flex-col ${tab === 'Chat' ? 'h-[var(--pace-viewport-height,100dvh)] min-h-0 overflow-hidden' : 'min-h-svh'}`}>
+      <div className="flex items-center justify-between mb-4">
+        <button onClick={() => navigate('/groups')} aria-label="Back" className="text-text-dim hover:text-text -ml-1.5 p-1.5">
+          <ChevronLeft />
+        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={() => setInviteOpen(true)} className="flex items-center gap-1.5 text-xs font-medium tracking-wide text-live border border-live/30 bg-live-soft rounded-full pl-3 pr-3.5 py-2">
+            <InviteIcon /> Invite friends
+          </button>
+          <button onClick={() => setSettingsOpen(true)} aria-label="Group settings" className="text-text-dim hover:text-text p-2 rounded-full border border-border bg-surface">
+            <SettingsIcon />
+          </button>
+        </div>
+      </div>
+
+      {group === undefined ? (
+        <GroupHeaderSkeleton />
+      ) : (
+        <div className="flex items-center gap-3.5 mb-6">
+          <GroupIcon groupId={groupId} size="md" />
+          <div className="flex-1 min-w-0">
+            <div className="font-display font-semibold tracking-tight uppercase text-lg truncate">{group?.name || '—'}</div>
+            <div className="text-xs text-text-faint">{memberList.length} members</div>
+          </div>
+        </div>
+      )}
+
+      <div className="flex items-center gap-6 border-b border-border-soft mb-6">
+        {TABS.map((t) => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className={`relative flex items-center gap-1.5 text-xs font-medium tracking-wide py-3 transition-colors ${tab === t ? 'text-text' : 'text-text-faint'}`}
+          >
+            {t === 'Live' && <span className="w-1.5 h-1.5 rounded-full bg-live" aria-hidden />}
+            {t}
+            {tab === t && <span className="absolute left-0 right-0 -bottom-px h-[2px] bg-text rounded-full" />}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'Leaderboard' && (
+        <Leaderboard
+          memberList={memberList}
+          totals={weekly || {}}
+          currentUid={user.uid}
+          week={week}
+          onOpenWeekPicker={() => setWeekPickerOpen(true)}
+          onSelectMember={setMemberSheetUid}
+        />
+      )}
+      {tab === 'Live' && (
+        <Live
+          memberList={memberList}
+          live={live || {}}
+          totals={daily || {}}
+          weekly={weekly || {}}
+          currentUid={user.uid}
+          onSelectMember={setMemberSheetUid}
+          onInvite={() => setInviteOpen(true)}
+        />
+      )}
+      {tab === 'Chat' && <Chat groupId={groupId} messages={messages} user={user} profile={profile} />}
+
+      <Sheet open={!!memberSheetUid} onClose={() => setMemberSheetUid(null)}>
+        <MemberDetailContent stats={memberSheetStats} self={memberSheetUid === user.uid} />
+      </Sheet>
+      <Sheet open={weekPickerOpen} onClose={() => setWeekPickerOpen(false)}>
+        <WeekPickerContent selected={weekOffset} onSelect={(offset) => { setWeekOffset(offset); setWeekPickerOpen(false) }} />
+      </Sheet>
+      <Sheet open={inviteOpen} onClose={() => setInviteOpen(false)}>
+        <InviteSheetContent groupId={groupId} />
+      </Sheet>
+      <Sheet open={settingsOpen} onClose={() => setSettingsOpen(false)}>
+        <SettingsSheetContent
+          group={group}
+          memberList={memberList}
+          isAdmin={isAdmin}
+          busy={busy}
+          onRename={handleRename}
+          onRequestRemove={setRemoveConfirmUid}
+          onRequestLeave={() => { setSettingsOpen(false); setLeaveConfirmOpen(true) }}
+          onRequestDelete={() => { setSettingsOpen(false); setDeleteConfirmOpen(true) }}
+        />
+      </Sheet>
+      <Sheet open={leaveConfirmOpen} onClose={() => setLeaveConfirmOpen(false)}>
+        <ConfirmSheet
+          title="Leave this group?"
+          subtitle={
+            isAdmin && memberList.length > 1
+              ? "You're the admin — another member will be promoted to take over."
+              : isAdmin
+                ? "You're the last member — the group will be deleted."
+                : "You'll need a new invite link to rejoin."
+          }
+          confirmLabel="Leave group"
+          busy={busy}
+          onConfirm={handleLeave}
+          onCancel={() => setLeaveConfirmOpen(false)}
+        />
+      </Sheet>
+      <Sheet open={deleteConfirmOpen} onClose={() => setDeleteConfirmOpen(false)}>
+        <ConfirmSheet
+          title="Delete this group?"
+          subtitle="This removes it for everyone and can't be undone."
+          confirmLabel="Delete group"
+          busy={busy}
+          onConfirm={handleDelete}
+          onCancel={() => setDeleteConfirmOpen(false)}
+        />
+      </Sheet>
+      <Sheet open={!!removeConfirmUid} onClose={() => setRemoveConfirmUid(null)}>
+        <ConfirmSheet
+          title="Remove this member?"
+          subtitle="They will leave this group and will need a new invite to rejoin."
+          confirmLabel="Remove member"
+          busy={busy}
+          onConfirm={async () => { await handleRemoveMember(removeConfirmUid); setRemoveConfirmUid(null) }}
+          onCancel={() => setRemoveConfirmUid(null)}
+        />
+      </Sheet>
+    </div>
+  )
 }
 
-function ConfirmSheet({ title, subtitle, confirmLabel, busy, onConfirm, onCancel }) { return <div className="flex flex-col items-center text-center"><div className="text-base font-medium mb-2">{title}</div><p className="text-xs text-text-faint mb-8">{subtitle}</p><div className="w-full flex flex-col gap-2.5"><Button variant="danger" className="w-full" onClick={onConfirm} disabled={busy}>{confirmLabel}</Button><Button variant="text" className="w-full" onClick={onCancel}>Cancel</Button></div></div> }
-function WeekPickerContent({ selected, onSelect }) { const weeks = Array.from({ length: WEEKS_BACK }, (_, i) => weekInfo(i)); return <div className="flex flex-col text-left"><div className="text-[13px] tracking-[0.25em] text-text-faint mb-5 text-center">SELECT WEEK</div><div className="flex flex-col gap-1.5">{weeks.map((w) => <button key={w.weekId} onClick={() => onSelect(w.weeksAgo)} className={`flex items-center justify-between rounded-xl px-4 py-3 text-sm transition-colors ${w.weeksAgo === selected ? 'bg-elevated text-text' : 'text-text-dim hover:bg-elevated/50'}`}><span className="font-medium">{w.label}</span><span className="text-xs text-text-faint">{w.isCurrent ? `Ends in ${w.daysLeft} day${w.daysLeft === 1 ? '' : 's'}` : 'Session ended'}</span></button>)}</div></div> }
-function InviteSheetContent({ groupId }) { const [copied, setCopied] = useState(false); const link = groupId ? `${window.location.origin}${window.location.pathname}#/join/${groupId}` : ''; async function handleCopy() { try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1600) } catch {} } function handleShare() { if (navigator.share) navigator.share({ url: link, text: 'Join my group on Pace' }).catch(() => {}); else handleCopy() } return <div className="flex flex-col items-center text-center"><div className="text-[13px] tracking-[0.25em] text-text-faint mb-5">INVITE A FRIEND</div><div className="w-full bg-elevated border border-border rounded-xl px-4 py-3 mb-6 text-xs text-text-dim break-all">{link}</div><div className="w-full flex gap-2.5"><Button variant="primary" className="flex-1" onClick={handleCopy}><CopyIcon /> {copied ? 'Copied' : 'Copy link'}</Button><Button variant="ghost" className="flex-1" onClick={handleShare}><ShareIcon /> Share</Button></div></div> }
+function ConfirmSheet({ title, subtitle, confirmLabel, busy, onConfirm, onCancel }) {
+  return (
+    <div className="flex flex-col items-center text-center">
+      <div className="text-base font-medium mb-2">{title}</div>
+      <p className="text-xs text-text-faint mb-8">{subtitle}</p>
+      <div className="w-full flex flex-col gap-2.5">
+        <Button variant="danger" className="w-full" onClick={onConfirm} disabled={busy}>{confirmLabel}</Button>
+        <Button variant="text" className="w-full" onClick={onCancel}>Cancel</Button>
+      </div>
+    </div>
+  )
+}
+
+function WeekPickerContent({ selected, onSelect }) {
+  const weeks = Array.from({ length: WEEKS_BACK }, (_, i) => weekInfo(i))
+  return (
+    <div className="flex flex-col text-left">
+      <div className="text-[13px] tracking-[0.25em] text-text-faint mb-5 text-center">SELECT WEEK</div>
+      <div className="flex flex-col gap-1.5">
+        {weeks.map((w) => (
+          <button
+            key={w.weekId}
+            onClick={() => onSelect(w.weeksAgo)}
+            className={`flex items-center justify-between rounded-xl px-4 py-3 text-sm transition-colors ${w.weeksAgo === selected ? 'bg-elevated text-text' : 'text-text-dim hover:bg-elevated/50'}`}
+          >
+            <span className="font-medium">{w.label}</span>
+            <span className="text-xs text-text-faint">
+              {w.isCurrent ? `Ends in ${w.daysLeft} day${w.daysLeft === 1 ? '' : 's'}` : 'Session ended'}
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function InviteSheetContent({ groupId }) {
+  const [copied, setCopied] = useState(false)
+  const link = groupId ? `${window.location.origin}${window.location.pathname}#/join/${groupId}` : ''
+
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(link)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1600)
+    } catch {
+      // Clipboard access can fail (permissions, insecure context) — the
+      // link is still visible in the sheet for the person to copy by hand.
+    }
+  }
+
+  function handleShare() {
+    if (navigator.share) navigator.share({ url: link, text: 'Join my group on Pace' }).catch(() => {})
+    else handleCopy()
+  }
+
+  return (
+    <div className="flex flex-col items-center text-center">
+      <div className="text-[13px] tracking-[0.25em] text-text-faint mb-5">INVITE A FRIEND</div>
+      <div className="w-full bg-elevated border border-border rounded-xl px-4 py-3 mb-6 text-xs text-text-dim break-all">{link}</div>
+      <div className="w-full flex gap-2.5">
+        <Button variant="primary" className="flex-1" onClick={handleCopy}><CopyIcon /> {copied ? 'Copied' : 'Copy link'}</Button>
+        <Button variant="ghost" className="flex-1" onClick={handleShare}><ShareIcon /> Share</Button>
+      </div>
+    </div>
+  )
+}
+
 function SettingsSheetContent({ group, memberList, isAdmin, busy, onRename, onRequestLeave, onRequestDelete, onRequestRemove }) {
   const [name, setName] = useState(group?.name || '')
   useEffect(() => { setName(group?.name || '') }, [group?.name])
   const dirty = !!name.trim() && name.trim() !== group?.name
 
-  return <div className="flex flex-col text-left max-h-[78vh] overflow-y-auto no-scrollbar -mx-1">
-    <div className="flex items-center gap-3 px-1 mb-7"><div className="w-10 h-10 rounded-xl bg-elevated border border-border flex items-center justify-center shrink-0"><SettingsIcon width="19" height="19" /></div><div className="min-w-0"><div className="text-base font-semibold tracking-tight">Group settings</div><div className="text-xs text-text-faint truncate">{group?.name || 'Your group'}</div></div></div>
+  return (
+    <div className="flex flex-col text-left max-h-[78vh] overflow-y-auto no-scrollbar -mx-1">
+      <div className="flex items-center gap-3 px-1 mb-7">
+        <div className="w-10 h-10 rounded-xl bg-elevated border border-border flex items-center justify-center shrink-0">
+          <SettingsIcon width="19" height="19" />
+        </div>
+        <div className="min-w-0">
+          <div className="text-base font-semibold tracking-tight">Group settings</div>
+          <div className="text-xs text-text-faint truncate">{group?.name || 'Your group'}</div>
+        </div>
+      </div>
 
-    <section className="mb-7">
-      <div className="text-[10px] tracking-[0.22em] text-text-faint mb-3">MEMBERS · {memberList.length}</div>
-      <div className="rounded-2xl border border-border bg-elevated/40 overflow-hidden">
-        {memberList.length === 0 ? <div className="px-4 py-4 text-xs text-text-faint">No members.</div> : memberList.map((m, i) => {
-          const memberIsAdmin = m.uid === group?.adminUid
-          return <div key={m.uid} className={`flex items-center gap-3 px-4 py-3.5 ${i < memberList.length - 1 ? 'border-b border-border-soft' : ''}`}>
-            <Avatar name={m.displayName} photoURL={m.photoURL} size="sm" />
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium truncate">{m.displayName}</div>
+      <section className="mb-7">
+        <div className="text-[10px] tracking-[0.22em] text-text-faint mb-3">MEMBERS · {memberList.length}</div>
+        <div className="rounded-2xl border border-border bg-elevated/40 overflow-hidden">
+          {memberList.length === 0 ? (
+            <div className="px-4 py-4 text-xs text-text-faint">No members.</div>
+          ) : memberList.map((m, i) => {
+            const memberIsAdmin = m.uid === group?.adminUid
+            return (
+              <div key={m.uid} className={`flex items-center gap-3 px-4 py-3.5 ${i < memberList.length - 1 ? 'border-b border-border-soft' : ''}`}>
+                <Avatar name={m.displayName} photoURL={m.photoURL} size="sm" />
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium truncate">{m.displayName}</div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className={`text-[9px] tracking-[0.16em] rounded-full px-2 py-1 ${memberIsAdmin ? 'text-accent border border-accent/20 bg-accent/5' : 'text-text-faint border border-border bg-surface'}`}>
+                    {memberIsAdmin ? 'ADMIN' : 'MEMBER'}
+                  </span>
+                  {isAdmin && !memberIsAdmin && (
+                    <button onClick={() => onRequestRemove(m.uid)} disabled={busy} className="text-xs font-medium text-danger px-2 py-1 disabled:opacity-40">
+                      Remove
+                    </button>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </section>
+
+      {isAdmin && (
+        <section className="mb-7">
+          <div className="text-[10px] tracking-[0.22em] text-text-faint mb-3">ADMIN</div>
+          <div className="rounded-2xl border border-border bg-elevated/40 overflow-hidden">
+            <div className="px-4 py-4">
+              <label className="text-xs text-text-faint block mb-2">Group name</label>
+              <div className="flex gap-2">
+                <input
+                  value={name}
+                  onChange={(e) => setName(e.target.value.slice(0, 24))}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && dirty) onRename(name) }}
+                  className="min-w-0 flex-1 bg-surface border border-border rounded-xl px-3.5 py-2.5 text-sm outline-none focus:border-text-faint"
+                  placeholder="Group name"
+                />
+                <Button variant="ghost" onClick={() => onRename(name)} disabled={!dirty || busy}>Save</Button>
+              </div>
             </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <span className={`text-[9px] tracking-[0.16em] rounded-full px-2 py-1 ${memberIsAdmin ? 'text-accent border border-accent/20 bg-accent/5' : 'text-text-faint border border-border bg-surface'}`}>{memberIsAdmin ? 'ADMIN' : 'MEMBER'}</span>
-              {isAdmin && !memberIsAdmin && <button onClick={() => onRequestRemove(m.uid)} disabled={busy} className="text-xs font-medium text-danger px-2 py-1 disabled:opacity-40">Remove</button>}
+            <div className="px-4 py-3.5 border-t border-border-soft text-xs text-text-faint">
+              Only admins can change the group name or remove members.
             </div>
           </div>
-        })}
-      </div>
-    </section>
-
-    {isAdmin && <section className="mb-7"><div className="text-[10px] tracking-[0.22em] text-text-faint mb-3">ADMIN</div><div className="rounded-2xl border border-border bg-elevated/40 overflow-hidden"><div className="px-4 py-4"><label className="text-xs text-text-faint block mb-2">Group name</label><div className="flex gap-2"><input value={name} onChange={(e) => setName(e.target.value.slice(0, 24))} onKeyDown={(e) => { if (e.key === 'Enter' && dirty) onRename(name) }} className="min-w-0 flex-1 bg-surface border border-border rounded-xl px-3.5 py-2.5 text-sm outline-none focus:border-text-faint" placeholder="Group name" /><Button variant="ghost" onClick={() => onRename(name)} disabled={!dirty || busy}>Save</Button></div></div><div className="px-4 py-3.5 border-t border-border-soft text-xs text-text-faint">Only admins can change the group name or remove members.</div></div></section>}
-    <section className="mb-2 pt-5 border-t border-border-soft"><Button variant="ghost" className="w-full justify-start" onClick={onRequestLeave}><ExitIcon /> Leave group</Button>{isAdmin && <Button variant="danger" className="w-full mt-2 justify-start" onClick={onRequestDelete}><TrashIcon /> Delete group</Button>}</section>
-  </div>
+        </section>
+      )}
+      <section className="mb-2 pt-5 border-t border-border-soft">
+        <Button variant="ghost" className="w-full justify-start" onClick={onRequestLeave}><ExitIcon /> Leave group</Button>
+        {isAdmin && (
+          <Button variant="danger" className="w-full mt-2 justify-start" onClick={onRequestDelete}><TrashIcon /> Delete group</Button>
+        )}
+      </section>
+    </div>
+  )
 }
 function computeMemberStats(memberList, weeklyTotals, sessionCounts, uid) {
   if (!uid) return null
