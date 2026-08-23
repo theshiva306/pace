@@ -53,22 +53,31 @@ export function AuthProvider({ children }) {
     return unsub
   }, [])
 
-  useEffect(() => {
-    if (!user) return
-    const userRef = ref(db, `users/${user.uid}`)
-    const unsub = onValue(userRef, (snap) => setProfile(snap.val()))
-    return unsub
-  }, [user])
+  const uid = user?.uid
 
   useEffect(() => {
-    if (!user) return
-    const groupsRef = ref(db, `userGroups/${user.uid}`)
+    if (!uid) return
+    const userRef = ref(db, `users/${uid}`)
+    const unsub = onValue(userRef, (snap) => setProfile(snap.val()))
+    return unsub
+    // Keyed on uid, not `user` — see the matching comment in
+    // useActiveSession.js for why the object itself isn't safe to depend
+    // on here (Firebase re-emits a new User reference on every token
+    // refresh, which would otherwise tear this down and rebuild it hourly
+    // for no reason).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uid])
+
+  useEffect(() => {
+    if (!uid) return
+    const groupsRef = ref(db, `userGroups/${uid}`)
     const unsub = onValue(groupsRef, (snap) => {
       setGroupIds(snap.exists() ? Object.keys(snap.val()) : [])
       setGroupsLoaded(true)
     })
     return unsub
-  }, [user])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uid])
 
   async function login() {
     setAuthError(null)

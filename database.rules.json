@@ -32,7 +32,7 @@
       "$uid": {
         ".read": "auth != null && (auth.uid === $uid || root.child('userGroups/' + auth.uid).hasChildren())",
         ".write": "auth != null && auth.uid === $uid",
-        ".validate": "!newData.exists() || (newData.hasChild('sessionId') && newData.child('startedAt').isNumber() && (newData.child('status').val() === 'active' || newData.child('status').val() === 'paused' || newData.child('status').val() === 'onBreak'))"
+        ".validate": "!newData.exists() || (newData.hasChild('sessionId') && newData.child('startedAt').isNumber() && (newData.child('status').val() === 'active' || newData.child('status').val() === 'paused' || newData.child('status').val() === 'onBreak' || newData.child('status').val() === 'stopped'))"
       }
     },
 

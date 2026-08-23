@@ -6,7 +6,7 @@ import { useSessionClock } from '../hooks/useSessionClock'
 import { useMyGroups } from '../hooks/useMyGroups'
 import { formatDuration } from '../lib/format'
 import {
-  startSession, pauseSession, resumeSession, startBreak, endBreak, saveSession, clearActiveSession,
+  startSession, pauseSession, resumeSession, startBreak, endBreak, stopSession, saveSession, clearActiveSession,
 } from '../lib/sessions'
 import { loadTimerSettings, saveTimerSettings } from '../lib/timerSettings'
 import { fireAction } from '../lib/fireAction'
@@ -45,11 +45,28 @@ export default function Timer() {
   const [breakInfoOpen, setBreakInfoOpen] = useState(false)
   const [stopConfirmOpen, setStopConfirmOpen] = useState(false)
   const [buffering, setBuffering] = useState(false)
-  const [stopped, setStopped] = useState(null) // { session, durationSeconds, startedAtMs, endedAtMs }
   const [saveError, setSaveError] = useState(false)
   const [busy, setBusy] = useState(false)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [pinnedPanelOpen, setPinnedPanelOpen] = useState(false)
+
+  // Derived from Firebase, not tracked as separate local state — this
+  // used to be its own useState, set independently in three different
+  // places with nothing telling the database it had happened. See the
+  // comment on stopSession() in lib/sessions.js for why that was the
+  // root cause of a stopped session sometimes reappearing as still
+  // running. Now there's exactly one source of truth: if the database
+  // says stopped, this shows the save screen; if it doesn't, it doesn't
+  // — survives reloads, reconnects, and remounts by construction.
+  const stopped = session?.status === 'stopped'
+    ? {
+      session,
+      durationSeconds: session.finalDurationSeconds ?? 0,
+      startedAtMs: session.startedAt,
+      endedAtMs: session.stoppedAt,
+      wasStale: session.stopReason === 'stale',
+    }
+    : null
 
   // Sessions shorter than this are considered too short to be worth saving —
   // stopping one just ends it quietly instead of showing the save screen.
@@ -83,14 +100,12 @@ export default function Timer() {
     staleHandledRef.current = true
 
     const durationSeconds = Math.round(clock.focusElapsed)
-    const startedAtMs = session.startedAt
-    const endedAtMs = session.pausedAt || Date.now()
 
     if (durationSeconds < MIN_SAVEABLE_SECONDS) {
       fireAction(() => clearActiveSession(user.uid, groupIds))
       return
     }
-    setStopped({ session, durationSeconds, startedAtMs, endedAtMs, wasStale: true })
+    fireAction(() => stopSession(user.uid, groupIds, { durationSeconds, reason: 'stale' }))
   }, [session, clock.focusElapsed, user.uid, groupIds])
 
   // Countdown mode had no completion handling at all before this — once
@@ -189,8 +204,6 @@ export default function Timer() {
     setStopConfirmOpen(false)
     setBuffering(true)
     const durationSeconds = Math.round(clock.focusElapsed)
-    const startedAtMs = session.startedAt
-    const endedAtMs = Date.now()
     // A short moment of stillness before the summary appears.
     await new Promise((resolve) => setTimeout(resolve, 700))
 
@@ -207,7 +220,13 @@ export default function Timer() {
       return
     }
 
-    setStopped({ session, durationSeconds, startedAtMs, endedAtMs })
+    try {
+      await stopSession(user.uid, groupIds, { durationSeconds, reason: 'manual' })
+    } catch {
+      // Write failed (offline, etc.) — session just stays 'active' and
+      // this can be tried again; nothing local to roll back since the
+      // save screen is derived from Firebase, not set optimistically here.
+    }
     setBuffering(false)
   }
 
@@ -223,11 +242,13 @@ export default function Timer() {
         session: stopped.session,
         durationSeconds: stopped.durationSeconds,
       })
-      setStopped(null)
+      // No manual state to clear — saveSession removes the Firebase
+      // session, useActiveSession's subscription picks that up, and
+      // `stopped` (derived above) naturally becomes null on its own.
     } catch {
-      // Leave `stopped` in place and let them try again — dismissing the
-      // screen here would make it look saved when it might not be, with
-      // no way back to that data afterward.
+      // Leave the save screen showing and let them try again — hiding it
+      // here would make it look saved when it might not be, with no way
+      // back to that data afterward.
       setSaveError(true)
     } finally {
       setBusy(false)
@@ -246,7 +267,6 @@ export default function Timer() {
     setSaveError(false)
     try {
       await clearActiveSession(user.uid, groupIds)
-      setStopped(null)
     } catch {
       setSaveError(true)
     } finally {

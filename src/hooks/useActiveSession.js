@@ -38,9 +38,10 @@ function writeCached(uid, value) {
 // offline, which the SDK already queues and applies locally on its own).
 export function useActiveSession() {
   const { user } = useAuth()
+  const uid = user?.uid
   const [session, setSession] = useState(() => {
-    if (!user) return undefined
-    const cached = readCached(user.uid)
+    if (!uid) return undefined
+    const cached = readCached(uid)
     // No cache and no network to ask Firebase — assume "no active session"
     // rather than showing a loading skeleton with nothing that will ever
     // resolve it.
@@ -49,16 +50,24 @@ export function useActiveSession() {
   })
 
   useEffect(() => {
-    if (!user) return
-    setSession(readCached(user.uid))
-    const sessRef = ref(db, `activeSessions/${user.uid}`)
+    if (!uid) return
+    setSession(readCached(uid))
+    const sessRef = ref(db, `activeSessions/${uid}`)
     const unsub = onValue(sessRef, (snap) => {
       const value = snap.exists() ? snap.val() : null
       setSession(value)
-      writeCached(user.uid, value)
+      writeCached(uid, value)
     })
     return unsub
-  }, [user])
+    // Deliberately keyed on uid (a stable primitive), not the `user`
+    // object itself — Firebase Auth emits a *new* User object reference
+    // on every token refresh (roughly hourly, or on app refocus) even
+    // for the same logged-in session. Depending on the object identity
+    // was tearing down and rebuilding this subscription on every one of
+    // those refreshes — visible as random loading flickers with nothing
+    // to do with actual connection quality.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uid])
 
   return session
 }

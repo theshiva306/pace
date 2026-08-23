@@ -82,6 +82,40 @@ export async function startBreak(uid, _groupIds) {
 
 export const endBreak = resumeSession
 
+// The single, authoritative way any code path (a manual stop, the
+// abandoned-session cleanup, a countdown reaching its target) marks a
+// session as finished. Writes status: 'stopped' to Firebase immediately
+// — this used to be tracked as local-only React state in Timer.jsx,
+// computed independently in three separate places, with nothing telling
+// the database it had happened. That meant Firebase kept saying the
+// session was still 'active' the whole time someone was looking at the
+// save screen — so anything that reset that local state before they
+// tapped Save (navigating away and back, a reload, or unrelated
+// resubscription churn) made the running session reappear, looking like
+// stop "didn't work." Now the save/discard screen is *derived* from
+// session.status === 'stopped' — a single source of truth that survives
+// reloads, reconnects, and remounts, instead of independent local state
+// that could silently drift out of sync with what the database actually
+// says.
+export async function stopSession(uid, _groupIds, { durationSeconds, reason = 'manual' } = {}) {
+  const snap = await get(ref(db, `activeSessions/${uid}`))
+  if (!snap.exists()) return
+  const session = snap.val()
+  if (session.status === 'stopped') return // already stopped — don't clobber
+  // If still actively running, bank this final streak the same way
+  // pauseSession/startBreak do, so the already-earned time keeps showing
+  // correctly in group totals during the brief pending window before
+  // Save/Delete is chosen — consistent with how a paused session behaves.
+  const bank = session.status === 'active' ? bankStreakUpdate(session, Date.now()) : {}
+  await update(ref(db, `activeSessions/${uid}`), {
+    ...bank,
+    status: 'stopped',
+    stoppedAt: serverTimestamp(),
+    finalDurationSeconds: durationSeconds,
+    stopReason: reason, // 'manual' | 'stale' | 'target'
+  })
+}
+
 export async function clearActiveSession(uid, _groupIds) {
   await remove(ref(db, `activeSessions/${uid}`))
 }
