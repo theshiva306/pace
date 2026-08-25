@@ -1,5 +1,5 @@
 import { usePolledValue } from '../hooks/usePolledValue'
-import { dayId } from '../lib/day'
+import { useTodayId } from '../hooks/useTodayId'
 import { Live } from './LiveView'
 import { ChevronRight, PinIcon } from './icons'
 
@@ -40,7 +40,7 @@ export function PinnedGroupPill({ summary, onOpen, onPinSomething }) {
 // this stays visually identical to the group page's own Live tab. Polled,
 // not real-time, same as that tab.
 export function PinnedGroupLivePanel({ groupId, currentUid, onOpenGroup }) {
-  const todayId = dayId()
+  const todayId = useTodayId()
   const name = usePolledValue(`groups/${groupId}/name`)
   const members = usePolledValue(`groups/${groupId}/members`)
   const live = usePolledValue(`groups/${groupId}/live`)

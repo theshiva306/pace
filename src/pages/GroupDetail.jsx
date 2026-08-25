@@ -2,11 +2,11 @@ import { useState, useMemo, useRef, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useGroup } from '../hooks/useGroup'
+import { useTodayId } from '../hooks/useTodayId'
 import { formatDuration, formatMessageTime, formatDayLabel } from '../lib/format'
 import { sendMessage, renameGroup, removeMember, leaveGroup, deleteGroup } from '../lib/sessions'
 import { weekInfo } from '../lib/week'
 import { leagueStatus, LEAGUES } from '../lib/league'
-import { dayId } from '../lib/day'
 import Avatar from '../components/Avatar'
 import GroupIcon from '../components/GroupIcon'
 import { GroupHeaderSkeleton } from '../components/Skeleton'
@@ -22,7 +22,7 @@ export default function GroupDetail() {
   const { groupId } = useParams()
   const navigate = useNavigate()
   const { user, profile } = useAuth()
-  const todayId = useMemo(() => dayId(), [])
+  const todayId = useTodayId()
   const [tab, setTab] = useState('Leaderboard')
   const [weekOffset, setWeekOffset] = useState(0)
   const [weekPickerOpen, setWeekPickerOpen] = useState(false)
@@ -32,7 +32,15 @@ export default function GroupDetail() {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [removeConfirmUid, setRemoveConfirmUid] = useState(null)
   const [busy, setBusy] = useState(false)
-  const week = useMemo(() => weekInfo(weekOffset), [weekOffset])
+  // Re-derives whenever todayId ticks over too — a day rollover can also
+  // be a week rollover (Sun -> Mon), and weekInfo(0) means "this week,"
+  // which needs to move on exactly when the day does. Same class of bug
+  // as todayId itself: without this, "this week" would freeze at
+  // whatever week it was when the page loaded, same as the daily bug —
+  // one live signal now drives both instead of two independent ones that
+  // could drift out of sync with each other.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- todayId is intentional: forces recompute at day rollover, weekInfo's own body doesn't read it as a value
+  const week = useMemo(() => weekInfo(weekOffset), [weekOffset, todayId])
   const { group, members, messages, weekly, sessionCounts, daily, live } = useGroup(groupId, week.weekId, todayId)
   const memberList = Object.entries(members).map(([uid, m]) => ({ uid, ...m }))
   const isAdmin = group?.adminUid === user.uid
