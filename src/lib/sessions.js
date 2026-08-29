@@ -5,7 +5,7 @@ import { db } from '../firebase'
 import { isoWeekId } from './week'
 import { dayId } from './day'
 import { ensureUserStats } from './userStats'
-import { bankStreakUpdate } from './sessionMath'
+import { bankStreakUpdate, computeDaySplit, computeWeekSplit } from './sessionMath'
 
 export const MAX_GROUP_SIZE = 6
 
@@ -22,6 +22,13 @@ export async function startSession(uid, _groupIds, mode, targetSeconds = null, b
     // clip exactly at day/week boundaries instead of approximating from
     // a single cumulative pause total. See sessionMath.js for the design.
     activeSince: serverTimestamp(),
+    // Immutable — the day/week the session actually started on, never
+    // updated again. Needed at save time to correctly attribute a
+    // session's earlier portion to the day it really happened on rather
+    // than the day it's saved on — see computeDaySplit/computeWeekSplit
+    // in sessionMath.js.
+    firstDayId: dayId(),
+    firstWeekId: isoWeekId(),
     mode,
     targetSeconds: targetSeconds ?? null,
     status: 'active',
@@ -124,13 +131,19 @@ export async function clearActiveSession(uid, _groupIds) {
 }
 
 export async function saveSession({ uid, session, durationSeconds }) {
-  const weekId = isoWeekId()
-  const todayId = dayId()
+  const dailyBreakdown = computeDaySplit(session, durationSeconds)
+  const weeklyBreakdown = computeWeekSplit(session, durationSeconds)
   try {
     const completedRef = ref(db, `completedSessions/${uid}/${session.sessionId}`)
     const already = await get(completedRef)
     if (!already.exists()) {
-      await set(completedRef, { startedAt: session.startedAt, endedAt: serverTimestamp(), durationSeconds, weekId, dayId: todayId })
+      await set(completedRef, {
+        startedAt: session.startedAt,
+        endedAt: serverTimestamp(),
+        durationSeconds,
+        dailyBreakdown,
+        weeklyBreakdown,
+      })
       await ensureUserStats(uid)
     }
   } finally {

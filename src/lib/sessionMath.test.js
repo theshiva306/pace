@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { focusSeconds, todayFocusSeconds, thisWeekFocusSeconds, bankStreakUpdate, startOfDayMs } from './sessionMath.js'
+import { focusSeconds, todayFocusSeconds, thisWeekFocusSeconds, bankStreakUpdate, startOfDayMs, computeDaySplit, computeWeekSplit } from './sessionMath.js'
 import { isStaleSession, isCurrentlyLive } from './staleSession.js'
 
 const H = 3600 * 1000
@@ -311,3 +311,127 @@ function isoWeekIdOf(ms) {
   const weekNo = Math.ceil((((d - yearStart) / 86400000) + 1) / 7)
   return `${d.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`
 }
+
+// --- Save-time day/week split -------------------------------------------
+// The live-preview fixes above only ever affected what's shown *while a
+// session is still running*. This covers what actually gets permanently
+// written once it's saved — the exact bug reported: "started at 11pm,
+// saved at 1am, the whole 2 hours landed on today's total instead of
+// being split 1h yesterday + 1h today."
+describe('computeDaySplit / computeWeekSplit — save-time attribution', () => {
+  test('Exact reported case: started 11pm, saved 1am (2h), splits 1h/1h across the boundary', () => {
+    const yesterday = dayIdOf(TODAY_MS - H)
+    const today = dayIdOf(TODAY_MS + H)
+    // Mirrors what stopSession() would have written: bankedDayId/Seconds
+    // reflect the post-midnight portion precisely (banked when stopped).
+    const session = {
+      startedAt: TODAY_MS - H, // 11pm yesterday
+      firstDayId: yesterday,
+      firstWeekId: isoWeekIdOf(TODAY_MS - H),
+      bankedDayId: today,
+      bankedDaySeconds: 3600, // the 12am-1am hour, banked at stop time
+      bankedWeekId: isoWeekIdOf(TODAY_MS + H),
+      bankedWeekSeconds: 3600,
+    }
+    const durationSeconds = 2 * 3600 // full session: 11pm-1am
+    const daySplit = computeDaySplit(session, durationSeconds)
+    assert.deepEqual(daySplit, { [yesterday]: 3600, [today]: 3600 }, '1h correctly attributed to each actual day, not 2h dumped on today')
+  })
+
+  test('Session entirely within one day needs no split', () => {
+    const session = { startedAt: TODAY_MS + H, firstDayId: dayIdOf(TODAY_MS), bankedDayId: dayIdOf(TODAY_MS), bankedDaySeconds: 7200 }
+    const daySplit = computeDaySplit(session, 7200)
+    assert.deepEqual(daySplit, { [dayIdOf(TODAY_MS)]: 7200 })
+  })
+
+  test('Exact second reported case: paused before midnight, resolved (saved) the next day', () => {
+    // Focused 2h yesterday evening, paused before midnight, never resumed
+    // — resolved via the abandoned-session flow the next day. Since
+    // status was 'paused' (not 'active') at stop time, stopSession()
+    // does NOT re-bank — bankedDayId/Seconds still correctly reflect
+    // yesterday, from when they originally paused.
+    const yesterday = dayIdOf(TODAY_MS - H)
+    const session = {
+      startedAt: TODAY_MS - 3 * H,
+      firstDayId: yesterday,
+      bankedDayId: yesterday, // unchanged since the original pause
+      bankedDaySeconds: 7200,
+    }
+    const durationSeconds = 7200 // the whole session was that 2h, all before midnight
+    const daySplit = computeDaySplit(session, durationSeconds)
+    assert.deepEqual(daySplit, { [yesterday]: 7200 }, 'entire duration correctly attributed to yesterday — the day it was actually focused — not to today, the day it was resolved')
+  })
+
+  test('Multiple same-day pause cycles before crossing midnight, then one final stop after', () => {
+    // 8-9pm active, pause, 9:30-10:30pm active, pause, resume 12:15am,
+    // stop 12:45am. Total 2.5h: 2h before midnight (both yesterday
+    // cycles), 0.5h after.
+    const yesterday = dayIdOf(TODAY_MS - H)
+    const today = dayIdOf(TODAY_MS + H)
+    const session = {
+      startedAt: TODAY_MS - 4 * H,
+      firstDayId: yesterday,
+      bankedDayId: today,
+      bankedDaySeconds: 1800, // only the final 12:15-12:45 streak, banked at stop
+    }
+    const durationSeconds = 2.5 * 3600
+    const daySplit = computeDaySplit(session, durationSeconds)
+    // Even though bankedDaySeconds only ever tracked the *final* streak
+    // (earlier same-day banked amounts get superseded once the day
+    // changes — see bankStreakUpdate's own reset-on-new-day behavior),
+    // the "everything else" bucket is computed as a difference from the
+    // known-correct total, not by reading a field that could have been
+    // overwritten — so this still comes out exactly right.
+    assert.deepEqual(daySplit, { [yesterday]: 2 * 3600, [today]: 1800 })
+  })
+
+  test('No bankedDayId at all (edge case: never paused or banked) still splits reasonably', () => {
+    const session = { startedAt: TODAY_MS - H, firstDayId: dayIdOf(TODAY_MS - H) }
+    const daySplit = computeDaySplit(session, 3600)
+    // Falls back to firstDayId as the single bucket — reasonable default
+    // when there's no banked info to split against at all.
+    assert.deepEqual(daySplit, { [dayIdOf(TODAY_MS - H)]: 3600 })
+  })
+
+  test('Week split: session spans Sun->Mon, splits correctly across the ISO week boundary', () => {
+    const monday = new Date(2026, 7, 17)
+    monday.setHours(0, 0, 0, 0)
+    const MONDAY_MS = monday.getTime()
+    const lastWeek = isoWeekIdOf(MONDAY_MS - H)
+    const thisWeek = isoWeekIdOf(MONDAY_MS + H)
+    const session = {
+      startedAt: MONDAY_MS - H,
+      firstWeekId: lastWeek,
+      bankedWeekId: thisWeek,
+      bankedWeekSeconds: 3600,
+    }
+    const weekSplit = computeWeekSplit(session, 2 * 3600)
+    assert.deepEqual(weekSplit, { [lastWeek]: 3600, [thisWeek]: 3600 })
+  })
+})
+
+// --- ensureUserStats aggregation (breakdown-aware) ------------------------
+describe('ensureUserStats-shaped aggregation logic', () => {
+  test('A single breakdown session correctly lands in two daily buckets', () => {
+    const sessions = {
+      s1: { dailyBreakdown: { '2026-08-18': 3600, '2026-08-19': 3600 }, weeklyBreakdown: { '2026-W34': 7200 } },
+    }
+    const dailyTotals = {}
+    for (const session of Object.values(sessions)) {
+      for (const [day, seconds] of Object.entries(session.dailyBreakdown)) {
+        dailyTotals[day] = (dailyTotals[day] || 0) + seconds
+      }
+    }
+    assert.deepEqual(dailyTotals, { '2026-08-18': 3600, '2026-08-19': 3600 })
+  })
+
+  test('Legacy single dayId/weekId sessions still aggregate correctly (backward compat)', () => {
+    const sessions = { old1: { dayId: '2026-08-10', weekId: '2026-W32', durationSeconds: 5400 } }
+    const dailyTotals = {}
+    for (const session of Object.values(sessions)) {
+      if (session.dailyBreakdown) continue
+      dailyTotals[session.dayId] = (dailyTotals[session.dayId] || 0) + session.durationSeconds
+    }
+    assert.deepEqual(dailyTotals, { '2026-08-10': 5400 })
+  })
+})

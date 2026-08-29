@@ -117,3 +117,54 @@ export function bankStreakUpdate(session, now) {
     bankedWeekSeconds: existingWeekSeconds + weekPortionSec,
   }
 }
+
+// --- Splitting a session's final saved duration across days/weeks ---
+//
+// Everything above is about the *live preview* shown while a session is
+// still going. This is about what actually gets permanently saved:
+// saveSession() previously wrote a session's entire durationSeconds to a
+// single dayId/weekId — whichever day it happened to be *saved* on, not
+// necessarily the day(s) it was actually earned on. A session started at
+// 11pm and saved at 1am got its full duration credited to the day
+// containing 1am, silently moving the pre-midnight hour's worth of focus
+// onto the wrong day (and taking it away from the day it actually
+// happened on). Same problem for a paused-before-midnight session
+// resolved (saved) the next day: its entire duration used to land on the
+// resolution day instead of the day it was actually focused.
+//
+// Splits into at most two buckets — "the most recent day/week" (precisely
+// known via bankedDayId/bankedDaySeconds, which stopSession() already
+// guarantees is fresh at the moment of stopping) and "everything before
+// that" (durationSeconds minus the most-recent bucket, attributed to
+// firstDayId/firstWeekId — the day/week the session actually started on).
+// This is exact for the realistic case of a session spanning at most one
+// day/week boundary, which covers every scenario a real study session
+// produces (nobody leaves a single continuous session open across three or
+// more calendar days without ever stopping it). A session spanning three
+// or more distinct days would have its middle day(s) folded into
+// firstDayId rather than their own buckets — a known, narrow limitation
+// of not storing full per-day interval history, traded for not needing a
+// bigger architecture change to fix the reported bug.
+export function computeDaySplit(session, durationSeconds) {
+  const recentId = session.bankedDayId ?? dayId(new Date(session.startedAt))
+  const recentSeconds = Math.min(durationSeconds, Math.max(0, Number(session.bankedDaySeconds) || 0))
+  const firstId = session.firstDayId ?? dayId(new Date(session.startedAt))
+  const priorSeconds = Math.max(0, durationSeconds - recentSeconds)
+
+  if (priorSeconds === 0 || firstId === recentId) {
+    return { [recentId]: durationSeconds }
+  }
+  return { [firstId]: priorSeconds, [recentId]: recentSeconds }
+}
+
+export function computeWeekSplit(session, durationSeconds) {
+  const recentId = session.bankedWeekId ?? isoWeekId(new Date(session.startedAt))
+  const recentSeconds = Math.min(durationSeconds, Math.max(0, Number(session.bankedWeekSeconds) || 0))
+  const firstId = session.firstWeekId ?? isoWeekId(new Date(session.startedAt))
+  const priorSeconds = Math.max(0, durationSeconds - recentSeconds)
+
+  if (priorSeconds === 0 || firstId === recentId) {
+    return { [recentId]: durationSeconds }
+  }
+  return { [firstId]: priorSeconds, [recentId]: recentSeconds }
+}
