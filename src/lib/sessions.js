@@ -39,7 +39,7 @@ export async function startSession(uid, _groupIds, mode, targetSeconds = null, b
   return session
 }
 
-export async function pauseSession(uid, _groupIds) {
+export async function pauseSession(uid, _groupIds, now = Date.now()) {
   const snap = await get(ref(db, `activeSessions/${uid}`))
   if (!snap.exists()) return
   const session = snap.val()
@@ -47,17 +47,20 @@ export async function pauseSession(uid, _groupIds) {
   // Fold the streak that's ending right now into today's/this week's
   // banked totals, using the exact timestamps available at this instant
   // — see bankStreakUpdate's comment in sessionMath.js for why this has
-  // to happen here rather than being reconstructed later.
-  const bank = bankStreakUpdate(session, Date.now())
+  // to happen here rather than being reconstructed later. `now` should
+  // be server-offset-corrected by the caller (see useSessionClock's
+  // `offset`) — a skewed device clock would otherwise bake a small but
+  // permanent error into the banked amount at the exact moment of pause.
+  const bank = bankStreakUpdate(session, now)
   await update(ref(db, `activeSessions/${uid}`), { status: 'paused', pausedAt: serverTimestamp(), ...bank })
 }
 
-export async function resumeSession(uid, _groupIds) {
+export async function resumeSession(uid, _groupIds, now = Date.now()) {
   const snap = await get(ref(db, `activeSessions/${uid}`))
   if (!snap.exists()) return
   const session = snap.val()
   if (session.status === 'active' || !session.pausedAt) return
-  const spent = Math.max(0, (Date.now() - Number(session.pausedAt)) / 1000)
+  const spent = Math.max(0, (now - Number(session.pausedAt)) / 1000)
   await update(ref(db, `activeSessions/${uid}`), {
     status: 'active',
     pausedAt: null,
@@ -66,12 +69,12 @@ export async function resumeSession(uid, _groupIds) {
   })
 }
 
-export async function startBreak(uid, _groupIds) {
+export async function startBreak(uid, _groupIds, now = Date.now()) {
   const snap = await get(ref(db, `activeSessions/${uid}`))
   if (!snap.exists()) return
   const session = snap.val()
   if (session.status !== 'active' || (session.breaksTaken || 0) >= (session.breaksAllowed || 0)) return
-  const bank = bankStreakUpdate(session, Date.now())
+  const bank = bankStreakUpdate(session, now)
   await update(ref(db, `activeSessions/${uid}`), {
     status: 'onBreak',
     pausedAt: serverTimestamp(),
@@ -97,7 +100,7 @@ export const endBreak = resumeSession
 // reloads, reconnects, and remounts, instead of independent local state
 // that could silently drift out of sync with what the database actually
 // says.
-export async function stopSession(uid, _groupIds, { durationSeconds, reason = 'manual' } = {}) {
+export async function stopSession(uid, _groupIds, { durationSeconds, reason = 'manual', now = Date.now() } = {}) {
   const snap = await get(ref(db, `activeSessions/${uid}`))
   if (!snap.exists()) return
   const session = snap.val()
@@ -106,7 +109,7 @@ export async function stopSession(uid, _groupIds, { durationSeconds, reason = 'm
   // pauseSession/startBreak do, so the already-earned time keeps showing
   // correctly in group totals during the brief pending window before
   // Save/Delete is chosen — consistent with how a paused session behaves.
-  const bank = session.status === 'active' ? bankStreakUpdate(session, Date.now()) : {}
+  const bank = session.status === 'active' ? bankStreakUpdate(session, now) : {}
   await update(ref(db, `activeSessions/${uid}`), {
     ...bank,
     status: 'stopped',

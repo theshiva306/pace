@@ -34,6 +34,12 @@ export default function Timer() {
   const navigate = useNavigate()
   const session = useActiveSession()
   const clock = useSessionClock(session)
+  // Server/device clock-skew-corrected "now" — see useServerOffset's
+  // comment. Every write that does session-math (pause/resume/break/stop)
+  // should use this instead of a raw Date.now(), or a skewed device clock
+  // bakes a small permanent error into the banked/paused amounts at the
+  // exact moment those actions happen.
+  const serverNow = () => Date.now() + clock.offset
 
   const pinnedGroupId = profile?.pinnedGroupId || null
   const pinnedSummary = useMyGroups(pinnedGroupId ? [pinnedGroupId] : [])[0]
@@ -80,9 +86,10 @@ export default function Timer() {
   useEffect(() => {
     if (clock.isOnBreak && clock.breakRemaining <= 0 && !autoResumeFired.current) {
       autoResumeFired.current = true
-      endBreak(user.uid, groupIds)
+      endBreak(user.uid, groupIds, serverNow())
     }
     if (!clock.isOnBreak) autoResumeFired.current = false
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- serverNow is a plain function recreated every render (reads clock.offset), not state; including it would just refire this on every unrelated render
   }, [clock.isOnBreak, clock.breakRemaining, user.uid, groupIds])
 
   // If a session was paused (or on a break) and simply abandoned — the
@@ -96,7 +103,7 @@ export default function Timer() {
   const staleHandledRef = useRef(false)
   useEffect(() => {
     if (!session) { staleHandledRef.current = false; return }
-    if (staleHandledRef.current || !isStaleSession(session, Date.now())) return
+    if (staleHandledRef.current || !isStaleSession(session, serverNow())) return
     staleHandledRef.current = true
 
     const durationSeconds = Math.round(clock.focusElapsed)
@@ -105,7 +112,8 @@ export default function Timer() {
       fireAction(() => clearActiveSession(user.uid, groupIds))
       return
     }
-    fireAction(() => stopSession(user.uid, groupIds, { durationSeconds, reason: 'stale' }))
+    fireAction(() => stopSession(user.uid, groupIds, { durationSeconds, reason: 'stale', now: serverNow() }))
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- serverNow intentionally omitted, same reason as the effect above
   }, [session, clock.focusElapsed, user.uid, groupIds])
 
   // Countdown mode had no completion handling at all before this — once
@@ -171,8 +179,8 @@ export default function Timer() {
     if (busy || !session) return
     setBusy(true)
     try {
-      if (clock.isPaused) await fireAction(() => resumeSession(user.uid, groupIds))
-      else await fireAction(() => pauseSession(user.uid, groupIds))
+      if (clock.isPaused) await fireAction(() => resumeSession(user.uid, groupIds, serverNow()))
+      else await fireAction(() => pauseSession(user.uid, groupIds, serverNow()))
     } finally {
       setBusy(false)
     }
@@ -182,7 +190,7 @@ export default function Timer() {
     if (busy || !session) return
     setBusy(true)
     try {
-      await fireAction(() => startBreak(user.uid, groupIds))
+      await fireAction(() => startBreak(user.uid, groupIds, serverNow()))
       setBreakInfoOpen(false)
     } finally {
       setBusy(false)
@@ -193,7 +201,7 @@ export default function Timer() {
     if (busy || !session) return
     setBusy(true)
     try {
-      await fireAction(() => endBreak(user.uid, groupIds))
+      await fireAction(() => endBreak(user.uid, groupIds, serverNow()))
     } finally {
       setBusy(false)
     }
@@ -204,6 +212,7 @@ export default function Timer() {
     setStopConfirmOpen(false)
     setBuffering(true)
     const durationSeconds = Math.round(clock.focusElapsed)
+    const stopNow = serverNow() // captured now, not 700ms later after the pause below
     // A short moment of stillness before the summary appears.
     await new Promise((resolve) => setTimeout(resolve, 700))
 
@@ -221,7 +230,7 @@ export default function Timer() {
     }
 
     try {
-      await stopSession(user.uid, groupIds, { durationSeconds, reason: 'manual' })
+      await stopSession(user.uid, groupIds, { durationSeconds, reason: 'manual', now: stopNow })
     } catch {
       // Write failed (offline, etc.) — session just stays 'active' and
       // this can be tried again; nothing local to roll back since the

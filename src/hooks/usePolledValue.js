@@ -5,6 +5,7 @@ import { isoWeekId } from '../lib/week'
 import { dayId } from '../lib/day'
 import { isCurrentlyLive } from '../lib/staleSession'
 import { todayFocusSeconds, thisWeekFocusSeconds } from '../lib/sessionMath'
+import { useServerOffset } from './useServerOffset'
 
 // Named for its `refresh()`/`refreshing` API (used for pull-to-refresh UX),
 // but for group study paths this is realtime, not polling: it subscribes
@@ -20,6 +21,15 @@ export function usePolledValue(path, { enabled = true } = {}) {
   const nowRef = useRef(Date.now())
   const recomputeRef = useRef(null)
   const mountedRef = useRef(true)
+  // Firebase's server/device clock-skew offset — see useServerOffset's own
+  // comment, and the matching one in useGroup.js. Every nowRef assignment
+  // below feeds directly into todayFocusSeconds/thisWeekFocusSeconds, so
+  // it needs this correction or a skewed device clock produces a real,
+  // consistent gap between what someone's own timer shows and what this
+  // hook computes for the exact same session.
+  const serverOffsetRef = useRef(0)
+  const serverOffset = useServerOffset()
+  serverOffsetRef.current = serverOffset
 
   const parts = (path || '').split('/')
   const isGroupLive = parts.length === 3 && parts[0] === 'groups' && parts[2] === 'live'
@@ -37,7 +47,7 @@ export function usePolledValue(path, { enabled = true } = {}) {
   useEffect(() => {
     if (!enabled || !isGroupStudyPath) return undefined
     const id = setInterval(() => {
-      nowRef.current = Date.now()
+      nowRef.current = Date.now() + serverOffsetRef.current
       recomputeRef.current?.()
     }, 1000)
     return () => clearInterval(id)
@@ -48,7 +58,7 @@ export function usePolledValue(path, { enabled = true } = {}) {
     setRefreshing(true)
     try {
       if (isGroupStudyPath) {
-        nowRef.current = Date.now()
+        nowRef.current = Date.now() + serverOffsetRef.current
         recomputeRef.current?.()
       } else {
         const snap = await get(ref(db, path))

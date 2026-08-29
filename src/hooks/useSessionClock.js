@@ -23,7 +23,7 @@ export function useSessionClock(session) {
   }, [session?.sessionId])
 
   if (!session) {
-    return { focusElapsed: 0, breakRemaining: 0, isPaused: false, isOnBreak: false }
+    return { focusElapsed: 0, breakRemaining: 0, isPaused: false, isOnBreak: false, offset }
   }
 
   const serverNow = now + offset
@@ -42,5 +42,5 @@ export function useSessionClock(session) {
     ? Math.max(0, (session.breakDurationSeconds || 0) - (serverNow - session.pausedAt) / 1000)
     : 0
 
-  return { focusElapsed, breakRemaining, isPaused, isOnBreak }
+  return { focusElapsed, breakRemaining, isPaused, isOnBreak, offset }
 }

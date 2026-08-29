@@ -3,6 +3,7 @@ import { ref, onValue, remove } from 'firebase/database'
 import { db } from '../firebase'
 import { isCurrentlyLive } from '../lib/staleSession'
 import { todayFocusSeconds, thisWeekFocusSeconds } from '../lib/sessionMath'
+import { useServerOffset } from './useServerOffset'
 
 const CHAT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
 
@@ -29,7 +30,16 @@ export function useGroup(groupId, weekId, dayId) {
   const [sessionCounts, setSessionCounts] = useState({})
   const [daily, setDaily] = useState({})
   const [live, setLive] = useState({})
-  const [now, setNow] = useState(Date.now())
+  const [rawNow, setRawNow] = useState(Date.now())
+  // Firebase's server/device clock-skew offset — see useServerOffset's own
+  // comment. useSessionClock.js (the person's own timer) already corrects
+  // for this; every "now" computed here needs the same correction, or a
+  // skewed device clock produces a real, consistent discrepancy between
+  // what someone's own timer shows and what the group's Live tab shows
+  // for that exact same session — no pausing or midnight boundary
+  // required to trigger it, just an inaccurate device clock.
+  const serverOffset = useServerOffset()
+  const now = rawNow + serverOffset
 
   useEffect(() => {
     if (!groupId) return undefined
@@ -104,8 +114,8 @@ export function useGroup(groupId, weekId, dayId) {
   const hasLive = Object.values(live).some(Boolean)
   useEffect(() => {
     if (!hasLive) return undefined
-    setNow(Date.now())
-    const id = window.setInterval(() => setNow(Date.now()), 1000)
+    setRawNow(Date.now())
+    const id = window.setInterval(() => setRawNow(Date.now()), 1000)
     return () => window.clearInterval(id)
   }, [hasLive])
 
