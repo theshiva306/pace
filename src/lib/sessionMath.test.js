@@ -253,15 +253,22 @@ describe('Staleness threshold edges', () => {
     const session = { status: 'paused', pausedAt: Date.now() - (3 * H + 1000), startedAt: Date.now() - 4 * H }
     assert.equal(isCurrentlyLive(session, Date.now()), false)
   })
-  test('Active: 1 second under 12h threshold is still live', () => {
-    const t = Date.now() - (12 * H - 1000)
+  test('Active: 1 second under 20h threshold is still live', () => {
+    const t = Date.now() - (20 * H - 1000)
     const session = { status: 'active', activeSince: t, startedAt: t }
     assert.equal(isCurrentlyLive(session, Date.now()), true)
   })
-  test('Active: 1 second over 12h threshold is stale', () => {
-    const t = Date.now() - (12 * H + 1000)
+  test('Active: 1 second over 20h threshold is stale', () => {
+    const t = Date.now() - (20 * H + 1000)
     const session = { status: 'active', activeSince: t, startedAt: t }
     assert.equal(isCurrentlyLive(session, Date.now()), false)
+  })
+  test('Active: a genuine full study day (14h continuous) must NOT be flagged', () => {
+    // The exact shape of the real report this threshold was raised for —
+    // studying continuously from morning into evening, no pause at all.
+    const t = Date.now() - 14 * H
+    const session = { status: 'active', activeSince: t, startedAt: t }
+    assert.equal(isCurrentlyLive(session, Date.now()), true, 'a real 14h study day must not be treated as abandoned')
   })
   test('onBreak uses the same 3h rule as paused', () => {
     const session = { status: 'onBreak', pausedAt: Date.now() - (3 * H + 1000), startedAt: Date.now() - 4 * H }

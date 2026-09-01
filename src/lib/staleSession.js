@@ -17,7 +17,18 @@ export const STALE_PAUSE_MS = 3 * 60 * 60 * 1000 // 3 hours
 // a genuine multi-hour dead pause — this exists purely to catch
 // "abandoned since yesterday (or longer)," not to second-guess anyone's
 // actual focus time.
-export const STALE_ACTIVE_MS = 12 * 60 * 60 * 1000 // 12 hours
+//
+// Was 12 hours — confirmed too tight: someone studying continuously
+// from morning into evening (very plausible on a real study day, no
+// pausing needed to trigger it) could cross 12 continuous hours while
+// genuinely still there, getting yanked into the "abandoned session"
+// save/discard screen mid-session. Getting this wrong in the "too
+// aggressive" direction actively disrupts a real session; getting it
+// wrong in the "too lenient" direction just means a truly abandoned
+// ghost session takes a bit longer to get cleaned up — a much smaller
+// cost. Raised well past what any realistic single-day session
+// (including genuine all-nighters) would reach.
+export const STALE_ACTIVE_MS = 20 * 60 * 60 * 1000 // 20 hours
 
 export function isStaleSession(session, now) {
   if (!session) return false
