@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useGroup } from '../hooks/useGroup'
 import { useTodayId } from '../hooks/useTodayId'
+import { useUnreadMessages } from '../hooks/useUnreadMessages'
 import { formatDuration, formatMessageTime, formatDayLabel } from '../lib/format'
 import { sendMessage, renameGroup, removeMember, leaveGroup, deleteGroup } from '../lib/sessions'
 import { weekInfo } from '../lib/week'
@@ -42,6 +43,7 @@ export default function GroupDetail() {
   // eslint-disable-next-line react-hooks/exhaustive-deps -- todayId is intentional: forces recompute at day rollover, weekInfo's own body doesn't read it as a value
   const week = useMemo(() => weekInfo(weekOffset), [weekOffset, todayId])
   const { group, members, messages, weekly, sessionCounts, daily, live } = useGroup(groupId, week.weekId, todayId)
+  const unreadCount = useUnreadMessages(groupId, messages, user.uid, tab === 'Chat')
   const memberList = Object.entries(members).map(([uid, m]) => ({ uid, ...m }))
   const isAdmin = group?.adminUid === user.uid
   const [memberSheetUid, setMemberSheetUid] = useState(null)
@@ -131,6 +133,11 @@ export default function GroupDetail() {
           >
             {t === 'Live' && <span className="w-1.5 h-1.5 rounded-full bg-live" aria-hidden />}
             {t}
+            {t === 'Chat' && unreadCount > 0 && (
+              <span className="min-w-[16px] h-4 px-1 rounded-full bg-danger text-white text-[10px] font-semibold flex items-center justify-center leading-none">
+                {unreadCount > 9 ? '9+' : unreadCount}
+              </span>
+            )}
             {tab === t && <span className="absolute left-0 right-0 -bottom-px h-[2px] bg-text rounded-full" />}
           </button>
         ))}
