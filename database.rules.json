@@ -24,7 +24,7 @@
       "$uid": {
         ".read": "auth != null && (auth.uid === $uid || root.child('userGroups/' + auth.uid).hasChildren())",
         ".write": "auth != null && auth.uid === $uid",
-        ".validate": "!newData.exists() || newData.hasChildren(['weeklyTotals', 'weeklySessionCounts', 'dailyTotals', 'updatedAt'])"
+        ".validate": "!newData.exists() || newData.hasChild('updatedAt')"
       }
     },
 
