@@ -518,6 +518,25 @@ function Chat({ groupId, messages, user, profile }) {
 
   const items = useMemo(() => withDayDividers(messages), [messages])
 
+  // Scrolls to the latest message the instant the tab is opened — without
+  // this, the browser leaves the scroll position wherever it defaults
+  // (effectively the top), so opening Chat with any history at all meant
+  // scrolling down manually just to see what's recent. Instant (no
+  // animation), fires once, the first time messages actually has content
+  // — separate from the effect below, which handles smoothly scrolling
+  // for genuinely *new* messages that arrive after that.
+  const initialScrollDone = useRef(false)
+  useEffect(() => {
+    if (initialScrollDone.current || !messages.length) return
+    initialScrollDone.current = true
+    // Rendering the whole history at once on first open is more layout
+    // work than a single incremental new message — wait a frame so the
+    // list has actually laid out before jumping to its end.
+    requestAnimationFrame(() => {
+      bottomRef.current?.scrollIntoView({ block: 'end', behavior: 'auto' })
+    })
+  }, [messages])
+
   useEffect(() => {
     const grew = messages.length > prevCount.current
     prevCount.current = messages.length
