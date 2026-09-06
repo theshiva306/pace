@@ -23,6 +23,7 @@ import Stepper from '../components/Stepper'
 import WheelColumn from '../components/WheelColumn'
 import { ChevronRight, ExpandIcon, CollapseIcon } from '../components/icons'
 import useFullscreen from '../hooks/useFullscreen'
+import { useSessionNotification, requestNotificationPermissionIfNeeded } from '../hooks/useSessionNotification'
 
 
 const HOURS = Array.from({ length: 13 }, (_, i) => i) // 0-12
@@ -145,6 +146,7 @@ export default function Timer() {
   async function handleStart(s) {
     if (busy || session) return
     setBusy(true)
+    requestNotificationPermissionIfNeeded()
     try {
       await fireAction(() => startSession(
         user.uid,
@@ -185,6 +187,12 @@ export default function Timer() {
       setBusy(false)
     }
   }
+
+  // Keeps the persistent "session still running" notification in sync,
+  // and routes its Pause/Resume button through this exact same handler
+  // when the app is open — see useSessionNotification.js and
+  // public/sw.js for the fully-closed-app fallback.
+  useSessionNotification(session, handleTogglePause)
 
   async function handleTakeBreak() {
     if (busy || !session) return

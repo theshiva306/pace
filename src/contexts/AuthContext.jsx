@@ -3,8 +3,9 @@ import {
   onAuthStateChanged, signInWithPopup, signInWithRedirect, getRedirectResult, signOut,
 } from 'firebase/auth'
 import { ref, onValue, set, serverTimestamp, get } from 'firebase/database'
-import { auth, db, googleProvider } from '../firebase'
+import { auth, db, databaseURL, googleProvider } from '../firebase'
 import { ensureUserStats } from '../lib/userStats'
+import { saveAuthCache } from '../lib/tokenCache'
 
 const AuthContext = createContext(null)
 
@@ -54,6 +55,36 @@ export function AuthProvider({ children }) {
   }, [])
 
   const uid = user?.uid
+
+  // Keeps a reasonably fresh ID token in IndexedDB, so a Pause/Resume tap
+  // on the persistent session notification can still authenticate a
+  // direct database write even if the site has been fully closed — see
+  // lib/tokenCache.js for the full explanation and its known limitation
+  // (a token cached here still expires roughly hourly; this just makes
+  // sure there's usually a recent one available for that fallback).
+  useEffect(() => {
+    if (!user) return undefined
+    const refresh = () => {
+      user.getIdToken().then((token) => {
+        saveAuthCache({ uid: user.uid, token, databaseURL })
+      }).catch(() => {
+        // Offline, or the session itself is no longer valid — nothing to
+        // do here; the next successful refresh (or the next login)
+        // updates the cache as normal.
+      })
+    }
+    refresh()
+    const id = window.setInterval(refresh, 30 * 60 * 1000) // every 30 min
+    return () => window.clearInterval(id)
+    // Keyed on uid, not `user` — calling .getIdToken() on an "older" User
+    // object reference still correctly returns a freshly refreshed token
+    // regardless of which snapshot it's called from (the method proxies
+    // to the SDK's current internal auth state), so there's no need to
+    // tear down and restart this interval just because `user`'s object
+    // identity changed on a token refresh — same reasoning as the other
+    // uid-keyed effects in this file.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uid])
 
   useEffect(() => {
     if (!uid) return

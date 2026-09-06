@@ -19,6 +19,11 @@
 // on top of them build after build.
 const CACHE_VERSION = 'pace-__BUILD_ID__'
 
+// Stamped at build time alongside CACHE_VERSION. Needed for the fully-
+// closed-app notification fallback below, which talks to the database
+// directly over REST rather than through the Firebase SDK.
+const DATABASE_URL = '__DATABASE_URL__'
+
 self.addEventListener('install', () => {
   self.skipWaiting()
 })
@@ -51,5 +56,158 @@ self.addEventListener('fetch', (event) => {
         }
         return Response.error()
       }),
+  )
+})
+
+// --- Persistent session notification: Pause/Resume button --------------
+//
+// Tapping the button follows one of two paths:
+//   1. An open tab exists (even backgrounded/hidden, just not force-
+//      closed) — hand it off via postMessage and let the app's own
+//      pauseSession/resumeSession run, exactly like the on-screen
+//      button. This is the reliable path and covers the common case of
+//      someone switching apps or locking their phone without actually
+//      closing Pace.
+//   2. No open tab at all — fall back to a direct database write over
+//      REST, using a Firebase ID token the main app keeps cached in
+//      IndexedDB for exactly this situation (see src/lib/tokenCache.js).
+//      A cached token still expires roughly hourly; if it's stale, the
+//      write fails and a plain notification explains that instead of
+//      silently doing nothing.
+//
+// The REST fallback deliberately updates only status/pausedAt/
+// pausedSeconds/activeSince — everything needed for the toggle to work
+// and for the eventual saved duration to stay correct — and skips the
+// day/week "banked" bookkeeping lib/sessionMath.js also does at pause
+// time. That bookkeeping only affects the live "today" preview's
+// precision for other people viewing the group while this session is
+// still in progress, not anything permanent, and fully re-syncs itself
+// the next time the app is opened normally. Re-implementing that whole
+// subsystem a second time here, in a context that can't import the
+// original, wasn't worth it for a narrow, self-correcting edge case.
+
+const NOTIFICATION_TAG = 'pace-session'
+
+// Duplicate of src/lib/tokenCache.js's read side — this is a plain
+// (non-module) service worker and can't import that file directly. Must
+// be kept in sync by hand if that file's schema ever changes.
+function readAuthCache() {
+  return new Promise((resolve) => {
+    const req = indexedDB.open('pace-auth-cache', 1)
+    req.onupgradeneeded = () => req.result.createObjectStore('tokens')
+    req.onsuccess = () => {
+      const db = req.result
+      try {
+        const getReq = db.transaction('tokens', 'readonly').objectStore('tokens').get('current')
+        getReq.onsuccess = () => { resolve(getReq.result || null); db.close() }
+        getReq.onerror = () => { resolve(null); db.close() }
+      } catch {
+        resolve(null)
+      }
+    }
+    req.onerror = () => resolve(null)
+  })
+}
+
+async function fetchServerNow(databaseURL) {
+  try {
+    const res = await fetch(`${databaseURL}/.info/serverTimeOffset.json`)
+    const offset = await res.json()
+    return Date.now() + (typeof offset === 'number' ? offset : 0)
+  } catch {
+    return Date.now() // best-effort — a few minutes of clock skew here is a much smaller problem than the action not working at all
+  }
+}
+
+function showFallbackFailureNotification() {
+  return self.registration.showNotification('Pace', {
+    tag: NOTIFICATION_TAG,
+    body: "Couldn't update your session — open Pace to continue",
+    requireInteraction: true,
+    icon: './icons/icon-192.png',
+    badge: './icons/icon-192.png',
+  })
+}
+
+async function toggleSessionViaRest() {
+  const cache = await readAuthCache()
+  if (!cache?.token || !cache?.uid) return showFallbackFailureNotification()
+
+  const { uid, token } = cache
+  // Falls back to the build-time-stamped value if the cache somehow has a
+  // token but no databaseURL (e.g. a token cached under an older schema,
+  // before that field was added here) — otherwise there'd be no way to
+  // reach the database at all in that case.
+  const databaseURL = cache.databaseURL || DATABASE_URL
+  const sessionUrl = `${databaseURL}/activeSessions/${uid}.json?auth=${token}`
+
+  try {
+    const res = await fetch(sessionUrl)
+    if (!res.ok) throw new Error('session fetch failed')
+    const session = await res.json()
+    if (!session) return // nothing active to toggle — notification is stale, leave it
+
+    const now = await fetchServerNow(databaseURL)
+    let patch
+    if (session.status === 'active') {
+      patch = { status: 'paused', pausedAt: { '.sv': 'timestamp' } }
+    } else if (session.status === 'paused' || session.status === 'onBreak') {
+      const spent = Math.max(0, (now - Number(session.pausedAt || now)) / 1000)
+      patch = {
+        status: 'active',
+        pausedAt: null,
+        pausedSeconds: (Number(session.pausedSeconds) || 0) + spent,
+        activeSince: { '.sv': 'timestamp' },
+      }
+    } else {
+      return // stopped, or an unrecognized status — nothing sensible to toggle
+    }
+
+    const patchRes = await fetch(sessionUrl, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    })
+    if (!patchRes.ok) throw new Error('patch failed')
+
+    await self.registration.showNotification('Pace', {
+      tag: NOTIFICATION_TAG,
+      body: 'Your session is still running',
+      requireInteraction: true,
+      silent: true,
+      icon: './icons/icon-192.png',
+      badge: './icons/icon-192.png',
+      actions: [{ action: 'toggle', title: patch.status === 'active' ? 'Pause' : 'Resume' }],
+    })
+  } catch {
+    await showFallbackFailureNotification()
+  }
+}
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close()
+
+  if (event.action === 'toggle') {
+    event.waitUntil(
+      self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+        if (clientList.length > 0) {
+          clientList[0].postMessage({ type: 'pace-notification-toggle' })
+          return undefined
+        }
+        return toggleSessionViaRest()
+      }),
+    )
+    return
+  }
+
+  // Clicked the notification body itself (not the action button) —
+  // focus an existing tab if one's open, otherwise open a new one.
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      for (const client of clientList) {
+        if ('focus' in client) return client.focus()
+      }
+      return self.clients.openWindow ? self.clients.openWindow('./') : undefined
+    }),
   )
 })
