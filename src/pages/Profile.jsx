@@ -135,16 +135,16 @@ export default function Profile() {
               <span className="text-xs text-text-faint">Blocked in browser settings</span>
             </div>
           ) : notifPermission === 'granted' ? (
-            <div className="flex items-center justify-between py-4">
-              <div>
+            <div className="flex items-start justify-between gap-4 py-4">
+              <div className="min-w-0">
                 <div className="text-sm font-medium">Session notifications</div>
-                <div className="text-xs text-text-faint mt-0.5">Shows while a timer is running, with Pause/Resume</div>
+                <div className="text-xs text-text-faint mt-1 leading-relaxed">Shows while a timer is running, with Pause/Resume</div>
               </div>
               <button
                 onClick={handleToggleNotifications}
                 role="switch"
                 aria-checked={notifEnabled}
-                className={`shrink-0 ml-4 w-11 h-6 rounded-full transition-colors relative ${notifEnabled ? 'bg-accent' : 'bg-elevated border border-border'}`}
+                className={`shrink-0 mt-0.5 w-11 h-6 rounded-full transition-colors relative ${notifEnabled ? 'bg-accent' : 'bg-elevated border border-border'}`}
               >
                 <span
                   className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${notifEnabled ? 'translate-x-[22px]' : 'translate-x-0.5'}`}
