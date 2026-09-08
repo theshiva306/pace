@@ -1,5 +1,6 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { isEnabledByUser } from '../lib/notificationPrefs'
+import { isAndroidMobile } from '../lib/platform'
 
 const NOTIFICATION_TAG = 'pace-session'
 
@@ -8,6 +9,7 @@ function statusIsLive(status) {
 }
 
 async function showOrUpdateNotification(session) {
+  if (!isAndroidMobile()) return
   if (!('serviceWorker' in navigator) || Notification.permission !== 'granted' || !isEnabledByUser()) return
   const registration = await navigator.serviceWorker.ready
   const isActive = session.status === 'active'
@@ -23,7 +25,15 @@ async function showOrUpdateNotification(session) {
   })
 }
 
-async function clearNotification() {
+// Exported — Profile.jsx's toggle-off needs to call this directly and
+// immediately. Just flipping the stored preference isn't enough: a
+// notification created via showNotification() persists independently of
+// any page, so nothing removes an already-visible one just because the
+// in-memory/stored preference changed elsewhere. Without this, turning
+// the setting off while a session's notification was already showing
+// left it stuck on screen until the session's status next happened to
+// change for an unrelated reason.
+export async function clearSessionNotification() {
   if (!('serviceWorker' in navigator)) return
   const registration = await navigator.serviceWorker.getRegistration()
   const existing = await registration?.getNotifications({ tag: NOTIFICATION_TAG })
@@ -32,10 +42,12 @@ async function clearNotification() {
 
 // Requests permission the first time someone actually starts a session —
 // not on page load, which would just be an annoying, context-free prompt.
-// Silently does nothing if already granted or denied; the person can
-// still turn it on later from the browser/OS's own notification settings
-// if they said no the first time.
+// Silently does nothing if already granted or denied (or not Android —
+// see lib/platform.js for why this feature is Android-only); the person
+// can still turn it on later from the browser/OS's own notification
+// settings if they said no the first time.
 export async function requestNotificationPermissionIfNeeded() {
+  if (!isAndroidMobile()) return
   if (!('Notification' in window) || Notification.permission !== 'default') return
   try {
     await Notification.requestPermission()
@@ -59,9 +71,10 @@ export async function requestNotificationPermissionIfNeeded() {
 // write on its own — see public/sw.js.
 export function useSessionNotification(session, onToggle) {
   useEffect(() => {
+    if (!isAndroidMobile()) return undefined
     function sync() {
       if (!session || !statusIsLive(session.status)) {
-        clearNotification()
+        clearSessionNotification()
       } else {
         showOrUpdateNotification(session)
       }
@@ -77,12 +90,21 @@ export function useSessionNotification(session, onToggle) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.status, session?.sessionId])
 
+  // `onToggle` is a fresh function reference on every render of the
+  // caller (Timer.jsx isn't memoizing it) — a ref here means this
+  // listener is set up exactly once instead of being torn down and
+  // re-added on every single render (the ticking clock alone re-renders
+  // Timer every second). Always calls whatever the *latest* onToggle is
+  // via the ref, so there's no risk of a stale closure either.
+  const onToggleRef = useRef(onToggle)
+  onToggleRef.current = onToggle
+
   useEffect(() => {
-    if (!('serviceWorker' in navigator)) return undefined
+    if (!isAndroidMobile() || !('serviceWorker' in navigator)) return undefined
     function onMessage(event) {
-      if (event.data?.type === 'pace-notification-toggle') onToggle()
+      if (event.data?.type === 'pace-notification-toggle') onToggleRef.current()
     }
     navigator.serviceWorker.addEventListener('message', onMessage)
     return () => navigator.serviceWorker.removeEventListener('message', onMessage)
-  }, [onToggle])
+  }, [])
 }

@@ -16,6 +16,8 @@
 //    doesn't (and can't) touch that; it just tells the app to stop
 //    calling showNotification even though it technically still could.
 
+import { isAndroidMobile } from './platform'
+
 const VISIT_COUNT_KEY = 'pace:notif:visitCount'
 const LAST_PROMPTED_AT_KEY = 'pace:notif:lastPromptedAtVisit'
 const DISMISSED_FOREVER_KEY = 'pace:notif:dismissedForever'
@@ -44,6 +46,7 @@ function writeValue(key, value) {
 // Called once per app load. Returns whether the in-app prompt should be
 // shown right now.
 export function bumpVisitAndShouldPrompt() {
+  if (!isAndroidMobile()) return false // feature is Android-only — see lib/platform.js
   if (!('Notification' in window)) return false
   if (Notification.permission !== 'default') return false // already decided, one way or the other
   try {

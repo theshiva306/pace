@@ -5,8 +5,9 @@ import Avatar from '../components/Avatar'
 import Sheet from '../components/Sheet'
 import Button from '../components/Button'
 import useInstallPrompt from '../hooks/useInstallPrompt'
-import { requestNotificationPermissionIfNeeded } from '../hooks/useSessionNotification'
+import { requestNotificationPermissionIfNeeded, clearSessionNotification } from '../hooks/useSessionNotification'
 import { isEnabledByUser, setEnabledByUser } from '../lib/notificationPrefs'
+import { isAndroidMobile } from '../lib/platform'
 
 export default function Profile() {
   const { user, profile, groupIds, logout } = useAuth()
@@ -19,7 +20,8 @@ export default function Profile() {
   const [deleteError, setDeleteError] = useState('')
   const [deleteSuccess, setDeleteSuccess] = useState(false)
   const { installed, canPromptInstall, browser, promptInstall } = useInstallPrompt()
-  const [notifPermission, setNotifPermission] = useState(() => ('Notification' in window ? Notification.permission : 'unsupported'))
+  const notificationFeatureAvailable = isAndroidMobile()
+  const [notifPermission, setNotifPermission] = useState(() => (notificationFeatureAvailable && 'Notification' in window ? Notification.permission : 'unsupported'))
   const [notifEnabled, setNotifEnabled] = useState(isEnabledByUser)
 
   async function handleEnableNotifications() {
@@ -35,6 +37,11 @@ export default function Profile() {
     const next = !notifEnabled
     setEnabledByUser(next)
     setNotifEnabled(next)
+    // Turning it off needs to remove an already-visible notification
+    // immediately, not just update the stored preference — a
+    // notification shown via showNotification() persists independently
+    // of any page until something explicitly closes it.
+    if (!next) clearSessionNotification()
   }
 
   async function handleInstall() {
