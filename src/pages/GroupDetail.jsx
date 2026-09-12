@@ -5,7 +5,7 @@ import { useGroup } from '../hooks/useGroup'
 import { useTodayId } from '../hooks/useTodayId'
 import { useUnreadMessages } from '../hooks/useUnreadMessages'
 import { formatDuration, formatMessageTime, formatDayLabel } from '../lib/format'
-import { sendMessage, renameGroup, removeMember, leaveGroup, deleteGroup } from '../lib/sessions'
+import { sendMessage, renameGroup, removeMember, leaveGroup, deleteGroup, clearChatForSelf } from '../lib/sessions'
 import { weekInfo } from '../lib/week'
 import { leagueStatus, LEAGUES } from '../lib/league'
 import Avatar from '../components/Avatar'
@@ -32,6 +32,7 @@ export default function GroupDetail() {
   const [leaveConfirmOpen, setLeaveConfirmOpen] = useState(false)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [removeConfirmUid, setRemoveConfirmUid] = useState(null)
+  const [clearChatConfirmOpen, setClearChatConfirmOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   // Re-derives whenever todayId ticks over too — a day rollover can also
   // be a week rollover (Sun -> Mon), and weekInfo(0) means "this week,"
@@ -42,7 +43,7 @@ export default function GroupDetail() {
   // could drift out of sync with each other.
   // eslint-disable-next-line react-hooks/exhaustive-deps -- todayId is intentional: forces recompute at day rollover, weekInfo's own body doesn't read it as a value
   const week = useMemo(() => weekInfo(weekOffset), [weekOffset, todayId])
-  const { group, members, messages, weekly, sessionCounts, daily, live } = useGroup(groupId, week.weekId, todayId)
+  const { group, members, messages, weekly, sessionCounts, daily, live } = useGroup(groupId, week.weekId, todayId, user.uid)
   const unreadCount = useUnreadMessages(groupId, messages, user.uid, tab === 'Chat')
   const memberList = Object.entries(members).map(([uid, m]) => ({ uid, ...m }))
   const isAdmin = group?.adminUid === user.uid
@@ -96,6 +97,17 @@ export default function GroupDetail() {
     }
   }
 
+  async function handleClearChat() {
+    if (busy) return
+    setBusy(true)
+    try {
+      await clearChatForSelf(user.uid, groupId, Date.now())
+      setClearChatConfirmOpen(false)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <div className={`px-5 pt-[calc(env(safe-area-inset-top)+20px)] pb-6 max-w-md mx-auto md:max-w-2xl md:pt-14 flex flex-col ${tab === 'Chat' ? 'h-[var(--pace-viewport-height,100dvh)] min-h-0 overflow-hidden' : 'min-h-svh'}`}>
       <div className="flex items-center justify-between mb-4">
@@ -103,6 +115,11 @@ export default function GroupDetail() {
           <ChevronLeft />
         </button>
         <div className="flex items-center gap-2">
+          {tab === 'Chat' && (
+            <button onClick={() => setClearChatConfirmOpen(true)} aria-label="Clear chat" className="text-text-dim hover:text-text p-2 rounded-full border border-border bg-surface">
+              <TrashIcon />
+            </button>
+          )}
           <button onClick={() => setInviteOpen(true)} className="flex items-center gap-1.5 text-xs font-medium tracking-wide text-live border border-live/30 bg-live-soft rounded-full pl-3 pr-3.5 py-2">
             <InviteIcon /> Invite friends
           </button>
@@ -221,6 +238,16 @@ export default function GroupDetail() {
           busy={busy}
           onConfirm={async () => { await handleRemoveMember(removeConfirmUid); setRemoveConfirmUid(null) }}
           onCancel={() => setRemoveConfirmUid(null)}
+        />
+      </Sheet>
+      <Sheet open={clearChatConfirmOpen} onClose={() => setClearChatConfirmOpen(false)}>
+        <ConfirmSheet
+          title="Clear chat?"
+          subtitle="This only clears your own view of the chat — other members won't be affected, and it's synced across your own devices."
+          confirmLabel="Clear chat"
+          busy={busy}
+          onConfirm={handleClearChat}
+          onCancel={() => setClearChatConfirmOpen(false)}
         />
       </Sheet>
     </div>

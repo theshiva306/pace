@@ -22,10 +22,11 @@ const CHAT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
 // Study totals and live presence are user-owned. The group subscribes to
 // each member's userStats and activeSessions, so joining a new group
 // immediately exposes the user's existing stats and current session.
-export function useGroup(groupId, weekId, dayId) {
+export function useGroup(groupId, weekId, dayId, currentUid) {
   const [group, setGroup] = useState(undefined)
   const [members, setMembers] = useState({})
-  const [messages, setMessages] = useState([])
+  const [rawMessages, setRawMessages] = useState([])
+  const [chatClearedAt, setChatClearedAt] = useState(0)
   const [weekly, setWeekly] = useState({})
   const [sessionCounts, setSessionCounts] = useState({})
   const [daily, setDaily] = useState({})
@@ -64,7 +65,7 @@ export function useGroup(groupId, weekId, dayId) {
           await Promise.all(expiredIds.map((id) => remove(ref(db, `groups/${groupId}/messages/${id}`)).catch(() => {})))
         }
 
-        setMessages(entries
+        setRawMessages(entries
           .filter(([, m]) => !m?.timestamp || Number(m.timestamp) >= cutoff)
           .map(([id, m]) => ({ id, ...m }))
           .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0)))
@@ -110,6 +111,23 @@ export function useGroup(groupId, weekId, dayId) {
 
     return () => unsubs.forEach((u) => u())
   }, [members, weekId, dayId])
+
+  useEffect(() => {
+    if (!groupId || !currentUid) { setChatClearedAt(0); return undefined }
+    const unsub = onValue(ref(db, `users/${currentUid}/chatClearedAt/${groupId}`), (s) => {
+      setChatClearedAt(Number(s.val()) || 0)
+    })
+    return unsub
+  }, [groupId, currentUid])
+
+  // Filters out anything the person cleared their own view of — a
+  // personal marker, synced across their devices, that doesn't touch the
+  // actual shared messages or anyone else's view of them at all. See
+  // clearChatForSelf in lib/sessions.js.
+  const messages = useMemo(
+    () => rawMessages.filter((m) => !m.timestamp || m.timestamp > chatClearedAt),
+    [rawMessages, chatClearedAt],
+  )
 
   const hasLive = Object.values(live).some(Boolean)
   useEffect(() => {

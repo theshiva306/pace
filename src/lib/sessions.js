@@ -237,6 +237,26 @@ export async function sendMessage({ groupId, uid, displayName, photoURL, text })
   await set(msgRef, { uid, displayName, photoURL: photoURL ?? null, text, timestamp: serverTimestamp() })
 }
 
+// Personal, not shared — clears *this person's own view* of the chat
+// going forward, without touching the actual shared messages or anyone
+// else's view of them. Stores a per-user, per-group "cleared before
+// this point" marker under their own account (synced across their
+// devices, same as lastRead below); anything sent before that point is
+// simply filtered out of what they see, while everyone else's chat is
+// completely unaffected.
+export async function clearChatForSelf(uid, groupId, timestamp) {
+  await set(ref(db, `users/${uid}/chatClearedAt/${groupId}`), timestamp)
+}
+
+// Per-account, not per-device — the unread badge should be the same
+// whether someone's checking from their phone or their laptop, so "last
+// read" lives under their own user node in Firebase (synced in real
+// time via useUnreadMessages' subscription) rather than in localStorage,
+// which only that one browser would ever see.
+export async function markGroupRead(uid, groupId, timestamp) {
+  await set(ref(db, `users/${uid}/lastRead/${groupId}`), timestamp)
+}
+
 export async function setPinnedGroup(uid, groupId) { await update(ref(db), { [`users/${uid}/pinnedGroupId`]: groupId }) }
 
 export async function updateDisplayName({ uid, groupIds, name }) {
