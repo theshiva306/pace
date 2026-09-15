@@ -7,6 +7,7 @@ import SideNav from './components/SideNav'
 import ErrorBoundary from './components/ErrorBoundary'
 import ConnectionBanner from './components/ConnectionBanner'
 import NotificationPromptSheet from './components/NotificationPromptSheet'
+import WhatsNewSheet from './components/WhatsNewSheet'
 import { AppSplashSkeleton } from './components/Skeleton'
 import Login from './pages/Login'
 // Timer is the landing page — needed on first paint, so it stays a
@@ -43,6 +44,7 @@ function Shell({ children }) {
       <div className="flex-1">{children}</div>
       {!isGroupDetail && <BottomNav />}
       <NotificationPromptSheet />
+      <WhatsNewSheet />
     </div>
   )
 }

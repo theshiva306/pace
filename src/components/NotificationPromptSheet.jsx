@@ -4,6 +4,7 @@ import Button from './Button'
 import {
   bumpVisitAndShouldPrompt, recordPromptShownNow, dismissPromptForever, setEnabledByUser,
 } from '../lib/notificationPrefs'
+import { hasSeenLatestWhatsNew } from '../lib/whatsNew'
 import { requestNotificationPermissionIfNeeded } from '../hooks/useSessionNotification'
 
 export default function NotificationPromptSheet() {
@@ -11,6 +12,10 @@ export default function NotificationPromptSheet() {
   const [dismissedMessage, setDismissedMessage] = useState(false)
 
   useEffect(() => {
+    // Let the what's-new sheet have the screen to itself on a visit where
+    // both would otherwise fire — this one just waits for the next visit
+    // instead of stacking on top of it.
+    if (!hasSeenLatestWhatsNew()) return
     if (bumpVisitAndShouldPrompt()) setOpen(true)
   }, [])
 
