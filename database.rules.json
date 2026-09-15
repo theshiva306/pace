@@ -39,7 +39,20 @@
     "completedSessions": {
       "$uid": {
         ".read": "auth != null && auth.uid === $uid",
-        ".write": "auth != null && auth.uid === $uid"
+        ".write": "auth != null && auth.uid === $uid",
+        ".indexOn": ["startedAt"]
+      }
+    },
+
+    "schedules": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid",
+        "$dateId": {
+          "$blockId": {
+            ".validate": "!newData.exists() || (newData.hasChildren(['title', 'type', 'startMs', 'endMs']) && newData.child('title').isString() && newData.child('title').val().length > 0 && newData.child('title').val().length <= 60 && (newData.child('type').val() === 'focus' || newData.child('type').val() === 'semiFocus') && newData.child('startMs').isNumber() && newData.child('endMs').isNumber() && newData.child('endMs').val() > newData.child('startMs').val())"
+          }
+        }
       }
     },
 

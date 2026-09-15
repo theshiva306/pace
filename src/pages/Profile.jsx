@@ -7,7 +7,7 @@ import Button from '../components/Button'
 import useInstallPrompt from '../hooks/useInstallPrompt'
 import { requestNotificationPermissionIfNeeded, clearSessionNotification } from '../hooks/useSessionNotification'
 import { isEnabledByUser, setEnabledByUser } from '../lib/notificationPrefs'
-import { isAndroidMobile } from '../lib/platform'
+import { isAndroidMobile, isIOSInstalled } from '../lib/platform'
 
 export default function Profile() {
   const { user, profile, groupIds, logout } = useAuth()
@@ -20,7 +20,7 @@ export default function Profile() {
   const [deleteError, setDeleteError] = useState('')
   const [deleteSuccess, setDeleteSuccess] = useState(false)
   const { installed, canPromptInstall, browser, promptInstall } = useInstallPrompt()
-  const notificationFeatureAvailable = isAndroidMobile()
+  const notificationFeatureAvailable = isAndroidMobile() || isIOSInstalled()
   const [notifPermission, setNotifPermission] = useState(() => (notificationFeatureAvailable && 'Notification' in window ? Notification.permission : 'unsupported'))
   const [notifEnabled, setNotifEnabled] = useState(isEnabledByUser)
 
@@ -145,7 +145,9 @@ export default function Profile() {
             <div className="flex items-start justify-between gap-4 py-4">
               <div className="min-w-0">
                 <div className="text-sm font-medium">Session notifications</div>
-                <div className="text-xs text-text-faint mt-1 leading-relaxed">Shows while a timer is running, with Pause/Resume</div>
+                <div className="text-xs text-text-faint mt-1 leading-relaxed">
+                  {isAndroidMobile() ? 'Shows while a timer is running, with Pause/Resume' : 'Shows while a timer is running'}
+                </div>
               </div>
               <button
                 onClick={handleToggleNotifications}

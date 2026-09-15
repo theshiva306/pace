@@ -1,8 +1,9 @@
 import { NavLink } from 'react-router-dom'
-import { TimerIcon, GroupsIcon, ProfileIcon } from './icons'
+import { TimerIcon, ScheduleIcon, GroupsIcon, ProfileIcon } from './icons'
 
 const items = [
   { to: '/', label: 'Timer', Icon: TimerIcon },
+  { to: '/schedule', label: 'Schedule', Icon: ScheduleIcon },
   { to: '/groups', label: 'Groups', Icon: GroupsIcon },
   { to: '/profile', label: 'Profile', Icon: ProfileIcon },
 ]

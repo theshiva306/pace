@@ -1,11 +1,5 @@
 import { useEffect, useState } from 'react'
-
-function isStandalone() {
-  return (
-    window.matchMedia?.('(display-mode: standalone)').matches ||
-    window.navigator.standalone === true // iOS/iPadOS Home Screen web app
-  )
-}
+import { isStandalonePWA } from '../lib/platform'
 
 // Best-effort browser/platform detection, used only to pick the right
 // instructions when there is no programmatic install API (Safari, iOS browsers).
@@ -43,7 +37,7 @@ function detectBrowser() {
 // the install row after the user removes the Home Screen icon.
 export default function useInstallPrompt() {
   const [deferredPrompt, setDeferredPrompt] = useState(null)
-  const [standalone] = useState(isStandalone)
+  const [standalone] = useState(isStandalonePWA)
   const [browser] = useState(detectBrowser)
 
   useEffect(() => {

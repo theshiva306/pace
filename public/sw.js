@@ -64,16 +64,20 @@ self.addEventListener('fetch', (event) => {
 // Tapping the button follows one of two paths:
 //   1. An open tab exists (even backgrounded/hidden, just not force-
 //      closed) — hand it off via postMessage and let the app's own
-//      pauseSession/resumeSession run, exactly like the on-screen
-//      button. This is the reliable path and covers the common case of
-//      someone switching apps or locking their phone without actually
-//      closing Pace.
+//      pauseLocal/resumeLocal run, exactly like the on-screen button.
+//      This is the reliable path and covers the common case of someone
+//      switching apps or locking their phone without actually closing
+//      Pace.
 //   2. No open tab at all — fall back to a direct database write over
 //      REST, using a Firebase ID token the main app keeps cached in
 //      IndexedDB for exactly this situation (see src/lib/tokenCache.js).
 //      A cached token still expires roughly hourly; if it's stale, the
 //      write fails and a plain notification explains that instead of
-//      silently doing nothing.
+//      silently doing nothing. The resolved result is also mirrored into
+//      the IndexedDB handoff store (see src/lib/sessionHandoff.js) so
+//      that when the app is next opened, it adopts this change instead
+//      of blindly re-uploading whatever stale local snapshot it had from
+//      before it closed — see useActiveSession.js's reconciliation.
 //
 // The REST fallback deliberately updates only status/pausedAt/
 // pausedSeconds/activeSince — everything needed for the toggle to work
@@ -87,6 +91,32 @@ self.addEventListener('fetch', (event) => {
 // original, wasn't worth it for a narrow, self-correcting edge case.
 
 const NOTIFICATION_TAG = 'pace-session'
+
+// Duplicate of src/lib/sessionHandoff.js's schema and write logic — this
+// is a plain (non-module) service worker and can't import that file
+// directly. DB_NAME/store name and the {session, updatedAt} shape must
+// be kept in sync with that file by hand if either ever changes.
+const HANDOFF_DB_NAME = 'pace-session-handoff'
+const HANDOFF_STORE = 'session'
+
+function writeHandoffFromSw(uid, session, updatedAt) {
+  return new Promise((resolve) => {
+    const req = indexedDB.open(HANDOFF_DB_NAME, 1)
+    req.onupgradeneeded = () => req.result.createObjectStore(HANDOFF_STORE)
+    req.onsuccess = () => {
+      const idb = req.result
+      try {
+        const tx = idb.transaction(HANDOFF_STORE, 'readwrite')
+        tx.objectStore(HANDOFF_STORE).put({ session, updatedAt }, uid)
+        tx.oncomplete = () => { resolve(); idb.close() }
+        tx.onerror = () => { resolve(); idb.close() } // best-effort — see src/lib/sessionHandoff.js's comment
+      } catch {
+        resolve()
+      }
+    }
+    req.onerror = () => resolve()
+  })
+}
 
 // Duplicate of src/lib/tokenCache.js's read side — this is a plain
 // (non-module) service worker and can't import that file directly. Must
@@ -148,17 +178,24 @@ async function toggleSessionViaRest() {
     if (!session) return // nothing active to toggle — notification is stale, leave it
 
     const now = await fetchServerNow(databaseURL)
+    // `patch` is what's actually sent to Firebase — '.sv' server-value
+    // sentinels there let Firebase itself correct for clock skew.
+    // `resolved` is the same update with concrete numbers instead of
+    // those sentinels, since a raw '.sv' placeholder object isn't a real
+    // timestamp and can't be handed to the page via the IndexedDB
+    // handoff below.
     let patch
+    let resolved
     if (session.status === 'active') {
       patch = { status: 'paused', pausedAt: { '.sv': 'timestamp' } }
+      resolved = { status: 'paused', pausedAt: now }
     } else if (session.status === 'paused' || session.status === 'onBreak') {
       const spent = Math.max(0, (now - Number(session.pausedAt || now)) / 1000)
+      const pausedSeconds = (Number(session.pausedSeconds) || 0) + spent
       patch = {
-        status: 'active',
-        pausedAt: null,
-        pausedSeconds: (Number(session.pausedSeconds) || 0) + spent,
-        activeSince: { '.sv': 'timestamp' },
+        status: 'active', pausedAt: null, pausedSeconds, activeSince: { '.sv': 'timestamp' },
       }
+      resolved = { ...patch, activeSince: now }
     } else {
       return // stopped, or an unrecognized status — nothing sensible to toggle
     }
@@ -169,6 +206,8 @@ async function toggleSessionViaRest() {
       body: JSON.stringify(patch),
     })
     if (!patchRes.ok) throw new Error('patch failed')
+
+    await writeHandoffFromSw(uid, { ...session, ...resolved }, now)
 
     await self.registration.showNotification('Pace', {
       tag: NOTIFICATION_TAG,

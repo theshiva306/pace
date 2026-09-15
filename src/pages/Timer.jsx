@@ -3,13 +3,16 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useActiveSession } from '../hooks/useActiveSession'
 import { useSessionClock } from '../hooks/useSessionClock'
+import { useSessionSync } from '../hooks/useSessionSync'
 import { useMyGroups } from '../hooks/useMyGroups'
 import { formatDuration } from '../lib/format'
 import {
-  startSession, pauseSession, resumeSession, startBreak, endBreak, stopSession, saveSession, clearActiveSession,
-} from '../lib/sessions'
+  startLocal, pauseLocal, resumeLocal, startBreakLocal, endBreakLocal, stopLocal, clearLocalSession,
+} from '../lib/localSession'
+import { computeDaySplit, computeWeekSplit } from '../lib/sessionMath'
+import { enqueueCompleted } from '../lib/pendingCompleted'
+import { syncActiveSession, flushPendingCompletedSessions } from '../lib/sessionSync'
 import { loadTimerSettings, saveTimerSettings } from '../lib/timerSettings'
-import { fireAction } from '../lib/fireAction'
 import { isStaleSession } from '../lib/staleSession'
 import { playCompletionAlert } from '../lib/completionAlert'
 import { TimerSkeleton } from '../components/Skeleton'
@@ -30,11 +33,19 @@ const HOURS = Array.from({ length: 13 }, (_, i) => i) // 0-12
 const MINUTES = Array.from({ length: 12 }, (_, i) => i * 5) // 0,5,...,55
 
 export default function Timer() {
-  const { user, profile, groupIds } = useAuth()
+  const { user, profile } = useAuth()
   const { isFullscreen, toggle: toggleFullscreen, supported: fullscreenSupported } = useFullscreen()
   const navigate = useNavigate()
   const session = useActiveSession()
   const clock = useSessionClock(session)
+  useSessionSync(user?.uid) // pushes local start/pause/stop/save to Firebase as soon as a connection is available
+  // Best-effort immediate push after a local action, on top of
+  // useSessionSync's reconnect/focus-triggered attempts — while online,
+  // this keeps sync feeling instant like it always did; while offline it
+  // just fails silently and useSessionSync's later triggers pick it up.
+  function syncSoon() {
+    syncActiveSession(user.uid).catch(() => {})
+  }
   // Server/device clock-skew-corrected "now" — see useServerOffset's
   // comment. Every write that does session-math (pause/resume/break/stop)
   // should use this instead of a raw Date.now(), or a skewed device clock
@@ -52,19 +63,19 @@ export default function Timer() {
   const [breakInfoOpen, setBreakInfoOpen] = useState(false)
   const [stopConfirmOpen, setStopConfirmOpen] = useState(false)
   const [buffering, setBuffering] = useState(false)
-  const [saveError, setSaveError] = useState(false)
   const [busy, setBusy] = useState(false)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [pinnedPanelOpen, setPinnedPanelOpen] = useState(false)
 
-  // Derived from Firebase, not tracked as separate local state — this
-  // used to be its own useState, set independently in three different
-  // places with nothing telling the database it had happened. See the
-  // comment on stopSession() in lib/sessions.js for why that was the
-  // root cause of a stopped session sometimes reappearing as still
-  // running. Now there's exactly one source of truth: if the database
-  // says stopped, this shows the save screen; if it doesn't, it doesn't
-  // — survives reloads, reconnects, and remounts by construction.
+  // Derived from the session record itself, not tracked as separate local
+  // state — this used to be its own useState, set independently in three
+  // different places with nothing telling the underlying session it had
+  // happened. That was the root cause of a stopped session sometimes
+  // reappearing as still running. Now there's exactly one source of
+  // truth (lib/localSession.js, synced to Firebase in the background by
+  // useSessionSync): if the session says stopped, this shows the save
+  // screen; if it doesn't, it doesn't — survives reloads, reconnects,
+  // remounts, and being offline the whole time, by construction.
   const stopped = session?.status === 'stopped'
     ? {
       session,
@@ -83,15 +94,16 @@ export default function Timer() {
   const autoResumeFired = useRef(false)
 
   // Auto-resume once a break's own countdown reaches zero. Guarded so a
-  // brief lag before Firebase's write comes back can't fire it twice.
+  // brief lag before the local write is reflected back can't fire it twice.
   useEffect(() => {
     if (clock.isOnBreak && clock.breakRemaining <= 0 && !autoResumeFired.current) {
       autoResumeFired.current = true
-      endBreak(user.uid, groupIds, serverNow())
+      endBreakLocal(user.uid, session, serverNow())
+      syncSoon()
     }
     if (!clock.isOnBreak) autoResumeFired.current = false
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- serverNow is a plain function recreated every render (reads clock.offset), not state; including it would just refire this on every unrelated render
-  }, [clock.isOnBreak, clock.breakRemaining, user.uid, groupIds])
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- serverNow/syncSoon are plain functions recreated every render, not state; including them would just refire this on every unrelated render
+  }, [clock.isOnBreak, clock.breakRemaining, user.uid, session])
 
   // If a session was paused (or on a break) and simply abandoned — the
   // person closed the app, or forgot about it entirely — silently
@@ -110,12 +122,13 @@ export default function Timer() {
     const durationSeconds = Math.round(clock.focusElapsed)
 
     if (durationSeconds < MIN_SAVEABLE_SECONDS) {
-      fireAction(() => clearActiveSession(user.uid, groupIds))
-      return
+      clearLocalSession(user.uid)
+    } else {
+      stopLocal(user.uid, session, { durationSeconds, reason: 'stale', now: serverNow() })
     }
-    fireAction(() => stopSession(user.uid, groupIds, { durationSeconds, reason: 'stale', now: serverNow() }))
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- serverNow intentionally omitted, same reason as the effect above
-  }, [session, clock.focusElapsed, user.uid, groupIds])
+    syncSoon()
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- serverNow/syncSoon intentionally omitted, same reason as the effect above
+  }, [session, clock.focusElapsed, user.uid])
 
   // Countdown mode had no completion handling at all before this — once
   // the target was reached, the ring just clamped its display at 00:00
@@ -143,22 +156,19 @@ export default function Timer() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, clock.focusElapsed])
 
-  async function handleStart(s) {
+  function handleStart(s) {
     if (busy || session) return
-    setBusy(true)
     requestNotificationPermissionIfNeeded()
-    try {
-      await fireAction(() => startSession(
-        user.uid,
-        groupIds,
-        s.mode,
-        s.mode === 'countdown' ? s.targetSeconds : null,
-        s.breaksAllowed,
-        s.breakDurationSeconds,
-      ))
-    } finally {
-      setBusy(false)
-    }
+    startLocal(
+      user.uid,
+      s.mode,
+      s.mode === 'countdown' ? s.targetSeconds : null,
+      s.breaksAllowed,
+      s.breakDurationSeconds,
+      serverNow(),
+      s.sessionType,
+    )
+    syncSoon()
   }
 
   function handleMainCta() {
@@ -177,42 +187,30 @@ export default function Timer() {
     handleStart(next)
   }
 
-  async function handleTogglePause() {
+  function handleTogglePause() {
     if (busy || !session) return
-    setBusy(true)
-    try {
-      if (clock.isPaused) await fireAction(() => resumeSession(user.uid, groupIds, serverNow()))
-      else await fireAction(() => pauseSession(user.uid, groupIds, serverNow()))
-    } finally {
-      setBusy(false)
-    }
+    if (clock.isPaused) resumeLocal(user.uid, session, serverNow())
+    else pauseLocal(user.uid, session, serverNow())
+    syncSoon()
   }
 
   // Keeps the persistent "session still running" notification in sync,
   // and routes its Pause/Resume button through this exact same handler
   // when the app is open — see useSessionNotification.js and
   // public/sw.js for the fully-closed-app fallback.
-  useSessionNotification(session, handleTogglePause)
+  useSessionNotification(session, clock, handleTogglePause)
 
-  async function handleTakeBreak() {
+  function handleTakeBreak() {
     if (busy || !session) return
-    setBusy(true)
-    try {
-      await fireAction(() => startBreak(user.uid, groupIds, serverNow()))
-      setBreakInfoOpen(false)
-    } finally {
-      setBusy(false)
-    }
+    startBreakLocal(user.uid, session, serverNow())
+    syncSoon()
+    setBreakInfoOpen(false)
   }
 
-  async function handleEndBreak() {
+  function handleEndBreak() {
     if (busy || !session) return
-    setBusy(true)
-    try {
-      await fireAction(() => endBreak(user.uid, groupIds, serverNow()))
-    } finally {
-      setBusy(false)
-    }
+    endBreakLocal(user.uid, session, serverNow())
+    syncSoon()
   }
 
   async function handleConfirmStop() {
@@ -226,50 +224,45 @@ export default function Timer() {
 
     // Too short to be worth saving — just end it, no save screen at all.
     if (durationSeconds < MIN_SAVEABLE_SECONDS) {
-      try {
-        await clearActiveSession(user.uid, groupIds)
-      } catch {
-        // If this fails (offline, etc.) the session just stays put and
-        // will be picked up again next time the app opens — better than
-        // silently pretending it's gone while it's actually still there.
-      }
+      clearLocalSession(user.uid) // instant, works offline — nothing to catch
+      syncSoon()
       setBuffering(false)
       return
     }
 
-    try {
-      await stopSession(user.uid, groupIds, { durationSeconds, reason: 'manual', now: stopNow })
-    } catch {
-      // Write failed (offline, etc.) — session just stays 'active' and
-      // this can be tried again; nothing local to roll back since the
-      // save screen is derived from Firebase, not set optimistically here.
-    }
+    stopLocal(user.uid, session, { durationSeconds, reason: 'manual', now: stopNow })
+    syncSoon()
     setBuffering(false)
   }
 
-  async function handleSave() {
+  function handleSave() {
     if (!stopped || busy) return
     setBusy(true)
-    setSaveError(false)
-    try {
-      await saveSession({
-        uid: user.uid,
-        groupId: groupIds[0] ?? null,
-        groupIds,
-        session: stopped.session,
+    // Saving is a local write — it always succeeds immediately, online or
+    // not. The record goes in the pending-completed queue and is flushed
+    // into Firebase (and counted in userStats) by useSessionSync as soon
+    // as a connection is available; clearing the local active session is
+    // what makes `stopped` (derived above) naturally become null.
+    const dailyBreakdown = computeDaySplit(stopped.session, stopped.durationSeconds)
+    const weeklyBreakdown = computeWeekSplit(stopped.session, stopped.durationSeconds)
+    enqueueCompleted(user.uid, {
+      sessionId: stopped.session.sessionId,
+      data: {
+        startedAt: stopped.session.startedAt,
+        endedAt: Date.now(),
         durationSeconds: stopped.durationSeconds,
-      })
-      // No manual state to clear — saveSession removes the Firebase
-      // session, useActiveSession's subscription picks that up, and
-      // `stopped` (derived above) naturally becomes null on its own.
-    } catch {
-      // Leave the save screen showing and let them try again — hiding it
-      // here would make it look saved when it might not be, with no way
-      // back to that data afterward.
-      setSaveError(true)
-    } finally {
-      setBusy(false)
-    }
+        // Defaults to 'focus' for sessions started before this field
+        // existed — same backward-compat convention lib/localSession.js
+        // and lib/sessionMath.js already use for their own added fields.
+        sessionType: stopped.session.sessionType || 'focus',
+        dailyBreakdown,
+        weeklyBreakdown,
+      },
+    })
+    clearLocalSession(user.uid)
+    syncActiveSession(user.uid).catch(() => {})
+    flushPendingCompletedSessions(user.uid).catch(() => {}) // best-effort now; useSessionSync retries later if this fails
+    setBusy(false)
   }
 
   function handleDeleteRequest() {
@@ -277,18 +270,13 @@ export default function Timer() {
     setDeleteConfirmOpen(true)
   }
 
-  async function handleConfirmDelete() {
+  function handleConfirmDelete() {
     if (!stopped || busy) return
     setDeleteConfirmOpen(false)
     setBusy(true)
-    setSaveError(false)
-    try {
-      await clearActiveSession(user.uid, groupIds)
-    } catch {
-      setSaveError(true)
-    } finally {
-      setBusy(false)
-    }
+    clearLocalSession(user.uid) // instant, works offline — nothing to catch
+    syncSoon()
+    setBusy(false)
   }
 
   function setHours(h) {
@@ -323,7 +311,7 @@ export default function Timer() {
   if (stopped) {
     return (
       <>
-        <SaveSessionScreen stopped={stopped} busy={busy} error={saveError} onSave={handleSave} onDelete={handleDeleteRequest} />
+        <SaveSessionScreen stopped={stopped} busy={busy} onSave={handleSave} onDelete={handleDeleteRequest} />
         <Sheet open={deleteConfirmOpen} onClose={() => setDeleteConfirmOpen(false)}>
           <div className="flex flex-col items-center text-center">
             <div className="text-base font-medium mb-2">Are you sure you want to delete this session?</div>
@@ -468,6 +456,14 @@ export default function Timer() {
       <Sheet open={setupOpen} onClose={() => setSetupOpen(false)}>
         <div className="flex flex-col gap-4">
           <div className="text-[13px] tracking-[0.25em] text-text-faint text-center mb-1">FOCUS SESSION</div>
+          <SegmentedControl
+            options={[
+              { value: 'focus', label: 'Focus' },
+              { value: 'semiFocus', label: 'Semi-focus' },
+            ]}
+            value={settings.sessionType}
+            onChange={(sessionType) => setSettings((s) => ({ ...s, sessionType }))}
+          />
           <SegmentedControl
             options={[
               { value: 'stopwatch', label: 'Stopwatch' },

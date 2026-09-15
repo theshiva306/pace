@@ -1,5 +1,5 @@
 import {
-  ref, set, get, remove, update, push, serverTimestamp,
+  ref, set, get, remove, update, push, serverTimestamp, runTransaction,
 } from 'firebase/database'
 import { db } from '../firebase'
 import { isoWeekId } from './week'
@@ -9,84 +9,102 @@ import { bankStreakUpdate, computeDaySplit, computeWeekSplit } from './sessionMa
 
 export const MAX_GROUP_SIZE = 6
 
-export async function startSession(uid, _groupIds, mode, targetSeconds = null, breaksAllowed = 0, breakDurationSeconds = 0) {
-  const existing = await get(ref(db, `activeSessions/${uid}`))
-  if (existing.exists()) return existing.val()
-  const sessionId = push(ref(db, `activeSessions/${uid}`)).key
-  const session = {
-    sessionId,
-    startedAt: serverTimestamp(),
-    // Marks when the *current* active streak began — separate from
-    // startedAt, which never changes. Updated at every resume/endBreak so
-    // the precise today/this-week live totals in lib/sessionMath.js can
-    // clip exactly at day/week boundaries instead of approximating from
-    // a single cumulative pause total. See sessionMath.js for the design.
-    activeSince: serverTimestamp(),
-    // Immutable — the day/week the session actually started on, never
-    // updated again. Needed at save time to correctly attribute a
-    // session's earlier portion to the day it really happened on rather
-    // than the day it's saved on — see computeDaySplit/computeWeekSplit
-    // in sessionMath.js.
-    firstDayId: dayId(),
-    firstWeekId: isoWeekId(),
-    mode,
-    targetSeconds: targetSeconds ?? null,
-    status: 'active',
-    pausedAt: null,
-    pausedSeconds: 0,
-    breaksAllowed,
-    breaksTaken: 0,
-    breakDurationSeconds,
-    bankedDayId: null,
-    bankedDaySeconds: 0,
-    bankedWeekId: null,
-    bankedWeekSeconds: 0,
-  }
-  await set(ref(db, `activeSessions/${uid}`), session)
-  return session
+// --- Concurrency note -----------------------------------------------
+// Every mutator below runs through Firebase's runTransaction instead of
+// a plain get()-then-update(). A session can legitimately be touched by
+// more than one writer at close to the same moment — the same account
+// open on two tabs or two devices, or the service worker's own
+// Pause/Resume REST call (public/sw.js) racing whatever the open tab is
+// doing. A plain read-modify-write there means both writers can read the
+// same "before" state and both commit, silently double-adding to
+// pausedSeconds/bankedDaySeconds or clobbering one write with the other.
+// runTransaction re-reads the latest value and retries the whole update
+// automatically if the data changed underneath it, which removes that
+// window entirely. `now`/serverTimestamp aren't mixed inside a
+// transaction body on purpose — server value placeholders can behave
+// unpredictably across a transaction's internal retries, so timestamps
+// here use the caller's already offset-corrected `now` (see
+// useServerOffset/useSessionClock) instead of serverTimestamp().
+// -----------------------------------------------------------------------
+
+export async function startSession(uid, _groupIds, mode, targetSeconds = null, breaksAllowed = 0, breakDurationSeconds = 0, now = Date.now()) {
+  const sessionRef = ref(db, `activeSessions/${uid}`)
+  const sessionId = push(sessionRef).key // local key generation — no network round-trip needed
+  const { snapshot } = await runTransaction(sessionRef, (current) => {
+    if (current) return current // already exists — leave it untouched, don't clobber
+    return {
+      sessionId,
+      startedAt: now,
+      // Marks when the *current* active streak began — separate from
+      // startedAt, which never changes. Updated at every resume/endBreak so
+      // the precise today/this-week live totals in lib/sessionMath.js can
+      // clip exactly at day/week boundaries instead of approximating from
+      // a single cumulative pause total. See sessionMath.js for the design.
+      activeSince: now,
+      // Immutable — the day/week the session actually started on, never
+      // updated again. Needed at save time to correctly attribute a
+      // session's earlier portion to the day it really happened on rather
+      // than the day it's saved on — see computeDaySplit/computeWeekSplit
+      // in sessionMath.js.
+      firstDayId: dayId(new Date(now)),
+      firstWeekId: isoWeekId(new Date(now)),
+      mode,
+      targetSeconds: targetSeconds ?? null,
+      status: 'active',
+      pausedAt: null,
+      pausedSeconds: 0,
+      breaksAllowed,
+      breaksTaken: 0,
+      breakDurationSeconds,
+      bankedDayId: null,
+      bankedDaySeconds: 0,
+      bankedWeekId: null,
+      bankedWeekSeconds: 0,
+    }
+  })
+  return snapshot.val()
 }
 
 export async function pauseSession(uid, _groupIds, now = Date.now()) {
-  const snap = await get(ref(db, `activeSessions/${uid}`))
-  if (!snap.exists()) return
-  const session = snap.val()
-  if (session.status !== 'active') return
-  // Fold the streak that's ending right now into today's/this week's
-  // banked totals, using the exact timestamps available at this instant
-  // — see bankStreakUpdate's comment in sessionMath.js for why this has
-  // to happen here rather than being reconstructed later. `now` should
-  // be server-offset-corrected by the caller (see useSessionClock's
-  // `offset`) — a skewed device clock would otherwise bake a small but
-  // permanent error into the banked amount at the exact moment of pause.
-  const bank = bankStreakUpdate(session, now)
-  await update(ref(db, `activeSessions/${uid}`), { status: 'paused', pausedAt: serverTimestamp(), ...bank })
+  const sessionRef = ref(db, `activeSessions/${uid}`)
+  await runTransaction(sessionRef, (session) => {
+    if (!session || session.status !== 'active') return session // no-op, nothing to abort
+    // Fold the streak that's ending right now into today's/this week's
+    // banked totals, using the exact timestamps available at this instant
+    // — see bankStreakUpdate's comment in sessionMath.js for why this has
+    // to happen here rather than being reconstructed later.
+    const bank = bankStreakUpdate(session, now)
+    return { ...session, status: 'paused', pausedAt: now, ...bank }
+  })
 }
 
 export async function resumeSession(uid, _groupIds, now = Date.now()) {
-  const snap = await get(ref(db, `activeSessions/${uid}`))
-  if (!snap.exists()) return
-  const session = snap.val()
-  if (session.status === 'active' || !session.pausedAt) return
-  const spent = Math.max(0, (now - Number(session.pausedAt)) / 1000)
-  await update(ref(db, `activeSessions/${uid}`), {
-    status: 'active',
-    pausedAt: null,
-    pausedSeconds: (session.pausedSeconds || 0) + spent,
-    activeSince: serverTimestamp(), // a fresh streak starts now
+  const sessionRef = ref(db, `activeSessions/${uid}`)
+  await runTransaction(sessionRef, (session) => {
+    if (!session || session.status === 'active' || !session.pausedAt) return session
+    const spent = Math.max(0, (now - Number(session.pausedAt)) / 1000)
+    return {
+      ...session,
+      status: 'active',
+      pausedAt: null,
+      pausedSeconds: (session.pausedSeconds || 0) + spent,
+      activeSince: now, // a fresh streak starts now
+    }
   })
 }
 
 export async function startBreak(uid, _groupIds, now = Date.now()) {
-  const snap = await get(ref(db, `activeSessions/${uid}`))
-  if (!snap.exists()) return
-  const session = snap.val()
-  if (session.status !== 'active' || (session.breaksTaken || 0) >= (session.breaksAllowed || 0)) return
-  const bank = bankStreakUpdate(session, now)
-  await update(ref(db, `activeSessions/${uid}`), {
-    status: 'onBreak',
-    pausedAt: serverTimestamp(),
-    breaksTaken: (session.breaksTaken || 0) + 1,
-    ...bank,
+  const sessionRef = ref(db, `activeSessions/${uid}`)
+  await runTransaction(sessionRef, (session) => {
+    if (!session || session.status !== 'active' || (session.breaksTaken || 0) >= (session.breaksAllowed || 0)) return session
+    const bank = bankStreakUpdate(session, now)
+    return {
+      ...session,
+      status: 'onBreak',
+      pausedAt: now,
+      breaksTaken: (session.breaksTaken || 0) + 1,
+      ...bank,
+    }
   })
 }
 
@@ -108,21 +126,22 @@ export const endBreak = resumeSession
 // that could silently drift out of sync with what the database actually
 // says.
 export async function stopSession(uid, _groupIds, { durationSeconds, reason = 'manual', now = Date.now() } = {}) {
-  const snap = await get(ref(db, `activeSessions/${uid}`))
-  if (!snap.exists()) return
-  const session = snap.val()
-  if (session.status === 'stopped') return // already stopped — don't clobber
-  // If still actively running, bank this final streak the same way
-  // pauseSession/startBreak do, so the already-earned time keeps showing
-  // correctly in group totals during the brief pending window before
-  // Save/Delete is chosen — consistent with how a paused session behaves.
-  const bank = session.status === 'active' ? bankStreakUpdate(session, now) : {}
-  await update(ref(db, `activeSessions/${uid}`), {
-    ...bank,
-    status: 'stopped',
-    stoppedAt: serverTimestamp(),
-    finalDurationSeconds: durationSeconds,
-    stopReason: reason, // 'manual' | 'stale' | 'target'
+  const sessionRef = ref(db, `activeSessions/${uid}`)
+  await runTransaction(sessionRef, (session) => {
+    if (!session || session.status === 'stopped') return session // already stopped — don't clobber
+    // If still actively running, bank this final streak the same way
+    // pauseSession/startBreak do, so the already-earned time keeps showing
+    // correctly in group totals during the brief pending window before
+    // Save/Delete is chosen — consistent with how a paused session behaves.
+    const bank = session.status === 'active' ? bankStreakUpdate(session, now) : {}
+    return {
+      ...session,
+      ...bank,
+      status: 'stopped',
+      stoppedAt: now,
+      finalDurationSeconds: durationSeconds,
+      stopReason: reason, // 'manual' | 'stale' | 'target'
+    }
   })
 }
 
@@ -135,17 +154,22 @@ export async function saveSession({ uid, session, durationSeconds }) {
   const weeklyBreakdown = computeWeekSplit(session, durationSeconds)
   try {
     const completedRef = ref(db, `completedSessions/${uid}/${session.sessionId}`)
-    const already = await get(completedRef)
-    if (!already.exists()) {
-      await set(completedRef, {
+    // Transaction instead of get()-then-set(): a double-tap on Save, or a
+    // retry after a slow connection makes the first attempt's result
+    // ambiguous, must not create two records or double-run
+    // ensureUserStats's totals. Returning undefined when a record already
+    // exists aborts the write instead of clobbering or duplicating it.
+    const { committed } = await runTransaction(completedRef, (current) => {
+      if (current) return undefined // already saved — leave it alone
+      return {
         startedAt: session.startedAt,
-        endedAt: serverTimestamp(),
+        endedAt: Date.now(),
         durationSeconds,
         dailyBreakdown,
         weeklyBreakdown,
-      })
-      await ensureUserStats(uid)
-    }
+      }
+    })
+    if (committed) await ensureUserStats(uid)
   } finally {
     await clearActiveSession(uid)
   }

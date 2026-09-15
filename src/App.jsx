@@ -17,6 +17,7 @@ import Login from './pages/Login'
 import Timer from './pages/Timer'
 const Groups = lazy(() => import('./pages/Groups'))
 const GroupDetail = lazy(() => import('./pages/GroupDetail'))
+const Schedule = lazy(() => import('./pages/Schedule'))
 const Profile = lazy(() => import('./pages/Profile'))
 const JoinLink = lazy(() => import('./pages/JoinLink'))
 
@@ -118,6 +119,7 @@ function Gate() {
       <Suspense fallback={<RouteLoadingFallback />}>
         <Routes>
           <Route path="/" element={<Timer />} />
+          <Route path="/schedule" element={<Schedule />} />
           <Route path="/groups" element={<Groups />} />
           <Route path="/groups/:groupId" element={<GroupDetail />} />
           <Route path="/profile" element={<Profile />} />

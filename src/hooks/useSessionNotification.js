@@ -1,26 +1,53 @@
 import { useEffect, useRef } from 'react'
 import { isEnabledByUser } from '../lib/notificationPrefs'
-import { isAndroidMobile } from '../lib/platform'
+import { isAndroidMobile, isIOSInstalled } from '../lib/platform'
+import { formatDuration } from '../lib/format'
 
 const NOTIFICATION_TAG = 'pace-session'
+const LIVE_UPDATE_INTERVAL_MS = 30_000
 
 function statusIsLive(status) {
   return status === 'active' || status === 'paused' || status === 'onBreak'
 }
 
-async function showOrUpdateNotification(session) {
-  if (!isAndroidMobile()) return
+// Live elapsed/remaining time instead of a static "still running" — see
+// the periodic refresh in useSessionNotification below for what keeps
+// this current while the app is in the foreground.
+function bodyFor(session, clock) {
+  if (session.status === 'onBreak') {
+    return `On a break — ${formatDuration(clock.breakRemaining)} left`
+  }
+  if (session.mode === 'countdown' && typeof session.targetSeconds === 'number') {
+    const remaining = Math.max(0, session.targetSeconds - clock.focusElapsed)
+    return session.status === 'paused'
+      ? `Paused — ${formatDuration(remaining)} left`
+      : `${formatDuration(remaining)} left`
+  }
+  return session.status === 'paused'
+    ? `Paused — ${formatDuration(clock.focusElapsed)} so far`
+    : `${formatDuration(clock.focusElapsed)} focused so far`
+}
+
+async function showOrUpdateNotification(session, clock) {
+  const androidCapable = isAndroidMobile()
+  const iosCapable = isIOSInstalled()
+  if (!androidCapable && !iosCapable) return
   if (!('serviceWorker' in navigator) || Notification.permission !== 'granted' || !isEnabledByUser()) return
   const registration = await navigator.serviceWorker.ready
   const isActive = session.status === 'active'
   await registration.showNotification('Pace', {
     tag: NOTIFICATION_TAG,
-    body: 'Your session is still running',
+    body: bodyFor(session, clock),
     requireInteraction: true,
     silent: true, // updating an ongoing session shouldn't buzz/sound each time
     icon: './icons/icon-192.png',
     badge: './icons/icon-192.png',
-    actions: [{ action: 'toggle', title: isActive ? 'Pause' : 'Resume' }],
+    // iOS doesn't render custom notification action buttons at all
+    // (confirmed against Apple's own developer forums) — omitting this
+    // there rather than shipping a button that silently does nothing.
+    // Tapping the notification body itself still opens/focuses Pace on
+    // both platforms, via sw.js's default notificationclick handling.
+    ...(androidCapable ? { actions: [{ action: 'toggle', title: isActive ? 'Pause' : 'Resume' }] } : {}),
     data: { isActive },
   })
 }
@@ -42,12 +69,14 @@ export async function clearSessionNotification() {
 
 // Requests permission the first time someone actually starts a session —
 // not on page load, which would just be an annoying, context-free prompt.
-// Silently does nothing if already granted or denied (or not Android —
-// see lib/platform.js for why this feature is Android-only); the person
+// Silently does nothing if already granted or denied, or on a platform
+// that can't show this notification at all (desktop, or iOS before it's
+// been added to the Home Screen — iOS only exposes the permission
+// prompt to an installed web app, not a regular Safari tab). The person
 // can still turn it on later from the browser/OS's own notification
 // settings if they said no the first time.
 export async function requestNotificationPermissionIfNeeded() {
-  if (!isAndroidMobile()) return
+  if (!isAndroidMobile() && !isIOSInstalled()) return
   if (!('Notification' in window) || Notification.permission !== 'default') return
   try {
     await Notification.requestPermission()
@@ -60,28 +89,53 @@ export async function requestNotificationPermissionIfNeeded() {
 }
 
 // Keeps the persistent "session still running" notification in sync with
-// the session's actual status for as long as one exists, and tears it
-// down the moment it doesn't. `onToggle` is called with the current
-// status when the notification's Pause/Resume button is tapped *while
-// the app is open* — the service worker forwards that tap here via
-// postMessage rather than performing the write itself in that case, so
-// it goes through the exact same pauseSession/resumeSession calls (and
-// server-time correction) the on-screen buttons already use. If the app
-// isn't open at all, the service worker falls back to a direct database
-// write on its own — see public/sw.js.
-export function useSessionNotification(session, onToggle) {
+// the session's actual status — and its displayed elapsed/remaining time
+// — for as long as one exists, and tears it down the moment it doesn't.
+// `onToggle` is called with no arguments when the notification's
+// Pause/Resume button is tapped *while the app is open* (Android only —
+// see bodyFor's comment on why iOS has no button to tap) — the service
+// worker forwards that tap here via postMessage rather than performing
+// the write itself in that case, so it goes through the exact same
+// pauseLocal/resumeLocal calls the on-screen buttons already use. If the
+// app isn't open at all, the service worker falls back to a direct
+// database write on its own — see public/sw.js.
+export function useSessionNotification(session, clock, onToggle) {
+  const clockRef = useRef(clock)
+  clockRef.current = clock
+
   useEffect(() => {
-    if (!isAndroidMobile()) return undefined
+    if (!isAndroidMobile() && !isIOSInstalled()) return undefined
     function sync() {
       if (!session || !statusIsLive(session.status)) {
         clearSessionNotification()
       } else {
-        showOrUpdateNotification(session)
+        showOrUpdateNotification(session, clockRef.current)
       }
     }
     sync()
     document.addEventListener('visibilitychange', sync)
-    return () => document.removeEventListener('visibilitychange', sync)
+    // Keeps the elapsed/remaining time reasonably current while the app
+    // sits open and in the foreground — sync() above already covers every
+    // status/mode change, so this interval's only job is refreshing the
+    // displayed number. Only runs while visible: there's no point paying
+    // for it while backgrounded, and the visibilitychange listener above
+    // already re-syncs immediately whenever that changes.
+    let intervalId = null
+    function manageInterval() {
+      if (document.visibilityState === 'visible' && session && statusIsLive(session.status)) {
+        if (!intervalId) intervalId = setInterval(sync, LIVE_UPDATE_INTERVAL_MS)
+      } else if (intervalId) {
+        clearInterval(intervalId)
+        intervalId = null
+      }
+    }
+    manageInterval()
+    document.addEventListener('visibilitychange', manageInterval)
+    return () => {
+      document.removeEventListener('visibilitychange', sync)
+      document.removeEventListener('visibilitychange', manageInterval)
+      if (intervalId) clearInterval(intervalId)
+    }
     // Deliberately keyed on session's status/sessionId fields, not the
     // whole object — Firebase constructs a new session object reference
     // on every onValue emission even when nothing meaningful changed;

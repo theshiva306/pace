@@ -29,6 +29,17 @@ export function ProfileIcon({ active }) {
   )
 }
 
+export function ScheduleIcon({ active }) {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+      <rect x="4" y="5.5" width="16" height="14.5" rx="2.5" stroke="currentColor" strokeWidth={active ? 2.2 : 1.6} />
+      <path d="M4 9.5h16" stroke="currentColor" strokeWidth={active ? 2.2 : 1.6} />
+      <path d="M8 3.5v3.5M16 3.5v3.5" stroke="currentColor" strokeWidth={active ? 2.2 : 1.6} strokeLinecap="round" />
+      <path d="M8 13h3M8 16h5" stroke="currentColor" strokeWidth={active ? 2 : 1.4} strokeLinecap="round" opacity="0.85" />
+    </svg>
+  )
+}
+
 export function ChevronLeft(props) {
   return (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" {...props}>

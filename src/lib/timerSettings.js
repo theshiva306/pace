@@ -10,6 +10,7 @@ const DEFAULTS = {
   targetSeconds: 60 * 60,
   breaksAllowed: 0,
   breakDurationSeconds: 5 * 60,
+  sessionType: 'focus', // 'focus' | 'semiFocus' — see lib/schedule.js for what this feeds into
 }
 
 export function loadTimerSettings() {
@@ -24,11 +25,15 @@ export function loadTimerSettings() {
 }
 
 export function saveTimerSettings(settings) {
-  const { mode, targetSeconds, breaksAllowed, breakDurationSeconds } = settings
+  const {
+    mode, targetSeconds, breaksAllowed, breakDurationSeconds, sessionType,
+  } = settings
   try {
     localStorage.setItem(
       KEY,
-      JSON.stringify({ mode, targetSeconds, breaksAllowed, breakDurationSeconds }),
+      JSON.stringify({
+        mode, targetSeconds, breaksAllowed, breakDurationSeconds, sessionType,
+      }),
     )
   } catch {
     // Private browsing / storage disabled — settings just won't persist.
