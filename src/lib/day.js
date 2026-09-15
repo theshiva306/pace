@@ -8,6 +8,14 @@ export function dayId(date = new Date()) {
   return `${y}-${m}-${d}`
 }
 
+// Calendar-day id offset by `delta` days from the given one (negative goes
+// back, positive forward). Built from date components, not raw
+// millisecond arithmetic, so it stays correct across a DST transition.
+export function addDays(dateId, delta) {
+  const [y, m, d] = dateId.split('-').map(Number)
+  return dayId(new Date(y, m - 1, d + delta))
+}
+
 // Milliseconds until local midnight — used to know when a "today" total
 // should be considered stale and re-read fresh.
 export function msUntilDayEnd(date = new Date()) {

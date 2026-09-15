@@ -80,6 +80,38 @@ export async function fetchSessionsForDay(uid, dateId) {
   }))
 }
 
+// One-time fetch of a day's scheduled blocks — same shape as
+// useScheduleBlocks' live list, but a plain read for call sites (like
+// copyScheduleBlocks below) that need one day's blocks without
+// subscribing to them.
+export async function fetchScheduleBlocks(uid, dateId) {
+  const snap = await get(ref(db, `schedules/${uid}/${dateId}`))
+  const value = snap.val() || {}
+  return Object.entries(value)
+    .map(([id, block]) => ({ id, ...block }))
+    .sort((a, b) => a.startMs - b.startMs)
+}
+
+// Copies every block from one day onto another, keeping each block's
+// time-of-day rather than its absolute timestamp — a 9-10am block on the
+// source day lands at 9-10am on the target day, correct even when the two
+// days are on opposite sides of a DST change. Returns how many blocks
+// were copied, so the caller can tell "nothing to copy" apart from a
+// successful copy of zero-length (impossible, but keeps the signal
+// explicit) or a network failure.
+export async function copyScheduleBlocks(uid, fromDateId, toDateId) {
+  const blocks = await fetchScheduleBlocks(uid, fromDateId)
+  const [ty, tm, td] = toDateId.split('-').map(Number)
+  await Promise.all(blocks.map((block) => {
+    const from = new Date(block.startMs)
+    const to = new Date(block.endMs)
+    const startMs = new Date(ty, tm - 1, td, from.getHours(), from.getMinutes(), 0, 0).getTime()
+    const endMs = new Date(ty, tm - 1, td, to.getHours(), to.getMinutes(), 0, 0).getTime()
+    return addScheduleBlock(uid, toDateId, { title: block.title, type: block.type, startMs, endMs })
+  }))
+  return blocks.length
+}
+
 // Actual focus/semi-focus totals for a set of days — the weekly graph's
 // data source. One query per day; fine at this scale (a week at a time,
 // called when the Schedule tab is open, not on every render).

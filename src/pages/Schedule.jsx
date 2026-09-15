@@ -1,18 +1,24 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import { dayId } from '../lib/day'
+import { dayId, addDays } from '../lib/day'
 import { weekStart } from '../lib/week'
 import { formatDuration, formatMessageTime } from '../lib/format'
 import {
-  useScheduleBlocks, addScheduleBlock, deleteScheduleBlock, fetchSessionsForDay, fetchWeekActualTotals,
+  useScheduleBlocks, addScheduleBlock, deleteScheduleBlock, copyScheduleBlocks, fetchSessionsForDay, fetchWeekActualTotals,
 } from '../lib/schedule'
 import { scoreDay, summarize } from '../lib/adherence'
 import Sheet from '../components/Sheet'
 import Button from '../components/Button'
 import SegmentedControl from '../components/SegmentedControl'
-import { PlusIcon, TrashIcon } from '../components/icons'
+import { PlusIcon, TrashIcon, CopyIcon } from '../components/icons'
 
 const WEEKDAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+
+// "2026-08-17" -> "Monday", for labeling the copy-from-previous-day button.
+function weekdayName(dateId) {
+  const [y, m, d] = dateId.split('-').map(Number)
+  return new Date(y, m - 1, d).toLocaleDateString([], { weekday: 'long' })
+}
 
 function weekDateIds(anchorMonday) {
   return Array.from({ length: 7 }, (_, i) => dayId(new Date(anchorMonday.getTime() + i * 86400000)))
@@ -136,6 +142,8 @@ export default function Schedule() {
   const [endTime, setEndTime] = useState('10:00')
   const [formError, setFormError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [copying, setCopying] = useState(false)
+  const [copyError, setCopyError] = useState('')
 
   const blocks = useScheduleBlocks(user.uid, selectedDateId)
 
@@ -185,8 +193,24 @@ export default function Schedule() {
     }
   }
 
+  const previousDateId = addDays(selectedDateId, -1)
+
   function handleDelete(blockId) {
     deleteScheduleBlock(user.uid, selectedDateId, blockId).catch(() => {})
+  }
+
+  async function handleCopyPrevious() {
+    if (copying) return
+    setCopying(true)
+    setCopyError('')
+    try {
+      const count = await copyScheduleBlocks(user.uid, previousDateId, selectedDateId)
+      if (count === 0) setCopyError(`${weekdayName(previousDateId)} had nothing scheduled to copy.`)
+    } catch {
+      setCopyError("Couldn't copy — check your connection and try again.")
+    } finally {
+      setCopying(false)
+    }
   }
 
   return (
@@ -231,8 +255,19 @@ export default function Schedule() {
       <div className="flex flex-col gap-2.5 mb-4">
         {rows === undefined && <div className="text-sm text-text-faint py-4 text-center">Loading…</div>}
         {rows && rows.length === 0 && (
-          <div className="text-sm text-text-faint py-6 text-center">
-            {isFuture ? 'Nothing planned yet.' : 'No blocks were scheduled this day.'}
+          <div className="flex flex-col items-center gap-3 py-6 text-center">
+            <div className="text-sm text-text-faint">
+              {isFuture ? 'Nothing planned yet.' : 'No blocks were scheduled this day.'}
+            </div>
+            <button
+              onClick={handleCopyPrevious}
+              disabled={copying}
+              className="flex items-center gap-1.5 text-sm font-medium text-accent disabled:opacity-60"
+            >
+              <CopyIcon width="14" height="14" />
+              {copying ? 'Copying…' : `Copy ${weekdayName(previousDateId)}'s schedule`}
+            </button>
+            {copyError && <p className="text-xs text-danger">{copyError}</p>}
           </div>
         )}
         {rows?.map((block) => <BlockRow key={block.id} block={block} onDelete={handleDelete} />)}
