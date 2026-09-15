@@ -345,64 +345,16 @@ export default function Schedule() {
       </Sheet>
 
       <Sheet open={helpOpen} onClose={() => setHelpOpen(false)}>
-        <div className="flex flex-col gap-5 text-sm text-text-dim leading-relaxed">
-          <div className="text-[13px] tracking-[0.25em] text-text-faint text-center">HOW SCHEDULING WORKS</div>
-
-          <div>
-            <p className="text-text font-medium mb-1">The percentage</p>
-            <p>
-              It's the share of today's planned time you actually studied,
-              credited block by block. A block only counts once a session of
-              the matching type — Focus or Semi-focus — starts within 15
-              minutes of that block's planned start.
-            </p>
-          </div>
-
-          <div>
-            <p className="text-text font-medium mb-1">The three statuses</p>
-            <ul className="list-disc pl-4 flex flex-col gap-1">
-              <li><span className="text-live font-medium">On time</span> — a matching session started close enough and ran the full planned length.</li>
-              <li><span className="text-accent font-medium">Short</span> — a matching session started on time but ended early; you're credited for what it actually covered.</li>
-              <li><span className="text-danger font-medium">Missed</span> — nothing matching started within that 15-minute window, and the block's time has already passed.</li>
-            </ul>
-          </div>
-
-          <div>
-            <p className="text-text font-medium mb-1">If nothing's scheduled</p>
-            <p>No percentage shows at all — there's nothing to measure against. Your actual study time still shows up in the week graph either way.</p>
-          </div>
-
-          <div>
-            <p className="text-text font-medium mb-1">If you studied more than planned</p>
-            <p>
-              A block caps at 100% of its own planned length — studying 90
-              minutes for a 60-minute block doesn't push that block over 100%,
-              and the extra 30 minutes doesn't carry over to cover a
-              different block. One session can only ever satisfy one block.
-            </p>
-          </div>
-
-          <div>
-            <p className="text-text font-medium mb-1">If you studied, but it still shows Missed</p>
-            <p>
-              Usually one of two things: the session was the wrong type (a
-              Focus session doesn't satisfy a Semi-focus block, or vice
-              versa), or it started more than 15 minutes off the block's
-              planned time. Either way, the study time itself still counts
-              toward your daily and weekly totals — it just isn't tied to
-              that slot.
-            </p>
-          </div>
-
-          <div>
-            <p className="text-text font-medium mb-1">Later blocks, today</p>
-            <p>
-              A block scheduled for later this evening doesn't show as
-              Missed just because it hasn't happened yet — it's simply
-              left out of the percentage until its own time (plus the
-              15-minute window) has actually passed.
-            </p>
-          </div>
+        <div className="flex flex-col gap-3.5 text-sm text-text-dim leading-relaxed">
+          <div className="text-[13px] tracking-[0.25em] text-text-faint text-center mb-1">HOW SCHEDULING WORKS</div>
+          <ul className="list-disc pl-4 flex flex-col gap-2.5">
+            <li>The % is credited time ÷ planned time — only for slots whose time has already passed.</li>
+            <li><span className="text-live font-medium">On time</span> · <span className="text-accent font-medium">Short</span> · <span className="text-danger font-medium">Missed</span> — full length, partial, or no matching session at all.</li>
+            <li>A session only counts if it's the <span className="text-text">right type</span> (Focus/Semi-focus) and starts <span className="text-text">within 15 min</span> of the block.</li>
+            <li>Studying more than planned still caps at 100% for that block — extra time never rolls over to a different block.</li>
+            <li>Nothing scheduled that day → no % shown at all, not 0%.</li>
+            <li>A later block today isn't "Missed" until its own time + 15 min has actually passed.</li>
+          </ul>
         </div>
       </Sheet>
     </div>
