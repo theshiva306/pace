@@ -156,6 +156,9 @@ export default function Timer() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, clock.focusElapsed])
 
+  const [typeSheetOpen, setTypeSheetOpen] = useState(false)
+  const [pendingStart, setPendingStart] = useState(null) // mode/duration/breaks, waiting on the Focus/Semi-focus choice before actually starting
+
   function handleStart(s) {
     if (busy || session) return
     requestNotificationPermissionIfNeeded()
@@ -175,7 +178,8 @@ export default function Timer() {
     if (settings.isFirstRun) {
       setSetupOpen(true)
     } else {
-      handleStart(settings)
+      setPendingStart(settings)
+      setTypeSheetOpen(true)
     }
   }
 
@@ -184,7 +188,20 @@ export default function Timer() {
     saveTimerSettings(next)
     setSettings(next)
     setSetupOpen(false)
-    handleStart(next)
+    setPendingStart(next)
+    setTypeSheetOpen(true)
+  }
+
+  // Asked fresh every single time, deliberately not remembered like
+  // mode/duration/breaks are — unlike those, which stay stable across
+  // sessions, Focus vs. Semi-focus is a real per-session decision, and
+  // silently defaulting to last time's choice risks a lecture getting
+  // logged as Focus (or a test session as Semi-focus, and quietly not
+  // counting) just because someone didn't notice or forgot to change it.
+  function handleChooseType(sessionType) {
+    setTypeSheetOpen(false)
+    if (pendingStart) handleStart({ ...pendingStart, sessionType })
+    setPendingStart(null)
   }
 
   function handleTogglePause() {
@@ -384,6 +401,21 @@ export default function Timer() {
         )}
       </Sheet>
 
+      {/* Which kind of session this is — deliberately loud (a filled pill,
+          not a subtle label), matching what was asked: this should be
+          impossible to miss while it's running, not something you have to
+          go look for. */}
+      {session && (
+        <div
+          className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold tracking-wide mb-2 ${
+            session.sessionType === 'semiFocus' ? 'bg-semi-soft text-semi' : 'bg-accent-soft text-accent'
+          }`}
+        >
+          <span className={`w-1.5 h-1.5 rounded-full ${session.sessionType === 'semiFocus' ? 'bg-semi' : 'bg-accent'}`} />
+          {session.sessionType === 'semiFocus' ? 'Semi-focus session' : 'Focus session'}
+        </div>
+      )}
+
       {/* Ring always centers in whatever vertical space is left between
           the top row and the bottom action row below. */}
       <div className="flex-1 min-h-0 w-full flex items-center justify-center">
@@ -458,14 +490,6 @@ export default function Timer() {
           <div className="text-[13px] tracking-[0.25em] text-text-faint text-center mb-1">FOCUS SESSION</div>
           <SegmentedControl
             options={[
-              { value: 'focus', label: 'Focus' },
-              { value: 'semiFocus', label: 'Semi-focus' },
-            ]}
-            value={settings.sessionType}
-            onChange={(sessionType) => setSettings((s) => ({ ...s, sessionType }))}
-          />
-          <SegmentedControl
-            options={[
               { value: 'stopwatch', label: 'Stopwatch' },
               { value: 'countdown', label: 'Timer' },
             ]}
@@ -487,6 +511,33 @@ export default function Timer() {
           <Button variant="primary" className="w-full mt-2" onClick={handleConfirmSetup} disabled={busy}>
             Start Focus Now
           </Button>
+        </div>
+      </Sheet>
+
+      {/* Focus vs. Semi-focus — asked fresh every start, see
+          handleChooseType's comment for why this isn't remembered like
+          the setup sheet's settings are. */}
+      <Sheet open={typeSheetOpen} onClose={() => { setTypeSheetOpen(false); setPendingStart(null) }}>
+        <div className="flex flex-col gap-3">
+          <div className="text-[13px] tracking-[0.25em] text-text-faint text-center mb-1">WHAT KIND OF SESSION?</div>
+          <button
+            onClick={() => handleChooseType('focus')}
+            className="text-left px-4 py-4 rounded-2xl border border-border bg-elevated hover:border-accent active:scale-[0.98] transition-all"
+          >
+            <div className="text-sm font-semibold text-accent">Focus</div>
+            <div className="text-xs text-text-dim mt-1 leading-relaxed">
+              Tests, problem-solving, practice — counts toward your group's ranking
+            </div>
+          </button>
+          <button
+            onClick={() => handleChooseType('semiFocus')}
+            className="text-left px-4 py-4 rounded-2xl border border-border bg-elevated hover:border-semi active:scale-[0.98] transition-all"
+          >
+            <div className="text-sm font-semibold text-semi">Semi-focus</div>
+            <div className="text-xs text-text-dim mt-1 leading-relaxed">
+              Lectures, coaching, classes — tracked for you only, never shown to your group
+            </div>
+          </button>
         </div>
       </Sheet>
 
