@@ -57,6 +57,38 @@ describe('scoreDay', () => {
   test('a day with no planned blocks has no adherence percentage', () => {
     assert.equal(scoreDay([], []).adherencePct, null)
   })
+
+  test('a block later today that has not reached its own start yet is upcoming, not missed', () => {
+    const blocks = [{ id: 'b1', title: 'Evening revision', type: 'focus', startMs: day0 + 20 * HOUR, endMs: day0 + 21 * HOUR }]
+    const now = day0 + 10 * HOUR // morning — well before the block starts
+    const { blocks: scored, adherencePct } = scoreDay(blocks, [], now)
+    assert.equal(scored[0].status, 'upcoming')
+    assert.equal(adherencePct, null) // excluded entirely, not counted as 0%
+  })
+
+  test('an upcoming block does not drag down a day that already has a completed one', () => {
+    const blocks = [
+      { id: 'b1', title: 'Morning', type: 'focus', startMs: day0 + 8 * HOUR, endMs: day0 + 9 * HOUR },
+      { id: 'b2', title: 'Evening', type: 'focus', startMs: day0 + 20 * HOUR, endMs: day0 + 21 * HOUR },
+    ]
+    const sessions = [{ sessionType: 'focus', startedAt: day0 + 8 * HOUR, durationSeconds: 3600 }]
+    const now = day0 + 10 * HOUR
+    const { blocks: scored, adherencePct } = scoreDay(blocks, sessions, now)
+    assert.equal(scored[0].status, 'done')
+    assert.equal(scored[1].status, 'upcoming')
+    assert.equal(adherencePct, 100) // only the morning block (already due) counts
+  })
+
+  test('once its tolerance window has passed with no match, an unstarted block becomes missed', () => {
+    const blocks = [{ id: 'b1', title: 'Evening revision', type: 'focus', startMs: day0 + 20 * HOUR, endMs: day0 + 21 * HOUR }]
+    const now = day0 + 20 * HOUR + 16 * 60 * 1000 // 16 minutes past its start, still no session
+    assert.equal(scoreDay(blocks, [], now).blocks[0].status, 'missed')
+  })
+
+  test('scoring a fully past day (no now given) treats every unmatched block as missed', () => {
+    const blocks = [{ id: 'b1', title: 'Evening revision', type: 'focus', startMs: day0 + 20 * HOUR, endMs: day0 + 21 * HOUR }]
+    assert.equal(scoreDay(blocks, []).blocks[0].status, 'missed')
+  })
 })
 
 describe('summarize', () => {

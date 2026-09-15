@@ -7,10 +7,11 @@ import {
   useScheduleBlocks, addScheduleBlock, deleteScheduleBlock, copyScheduleBlocks, fetchSessionsForDay, fetchWeekActualTotals,
 } from '../lib/schedule'
 import { scoreDay, summarize } from '../lib/adherence'
+import { useServerOffset } from '../hooks/useServerOffset'
 import Sheet from '../components/Sheet'
 import Button from '../components/Button'
 import SegmentedControl from '../components/SegmentedControl'
-import { PlusIcon, TrashIcon, CopyIcon } from '../components/icons'
+import { PlusIcon, TrashIcon, CopyIcon, QuestionIcon } from '../components/icons'
 
 const WEEKDAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
@@ -36,10 +37,13 @@ const STATUS_STYLE = {
   done: { label: 'On time', className: 'bg-live-soft text-live' },
   short: { label: null, className: 'bg-accent-soft text-accent' }, // label filled in per-block with the actual shortfall
   missed: { label: 'Missed', className: 'bg-danger-soft text-danger' },
+  // 'upcoming' deliberately has no entry — StatusBadge renders nothing for
+  // it, same as a block on a future day. Its time just hasn't come yet,
+  // so there's nothing to report.
 }
 
 function StatusBadge({ block }) {
-  if (!block.status) return null
+  if (!block.status || block.status === 'upcoming') return null
   const style = STATUS_STYLE[block.status]
   const label = block.status === 'short' ? `${formatDuration(block.shortfallSec)} short` : style.label
   return <span className={`text-xs px-2 py-1 rounded-md shrink-0 ${style.className}`}>{label}</span>
@@ -144,6 +148,9 @@ export default function Schedule() {
   const [busy, setBusy] = useState(false)
   const [copying, setCopying] = useState(false)
   const [copyError, setCopyError] = useState('')
+  const [helpOpen, setHelpOpen] = useState(false)
+
+  const serverOffset = useServerOffset()
 
   const blocks = useScheduleBlocks(user.uid, selectedDateId)
 
@@ -161,8 +168,13 @@ export default function Schedule() {
 
   const scored = useMemo(() => {
     if (isFuture || !blocks || !daySessions) return null
-    return scoreDay(blocks, daySessions)
-  }, [isFuture, blocks, daySessions])
+    // Only today needs an actual cutoff — a block later this evening
+    // hasn't happened yet and shouldn't be judged as missed. Past days
+    // are scored as fully settled regardless (scoreDay's default of
+    // Infinity does that on its own), so this only branches for today.
+    const now = isToday ? Date.now() + serverOffset : Infinity
+    return scoreDay(blocks, daySessions, now)
+  }, [isFuture, isToday, blocks, daySessions, serverOffset])
 
   const rows = scored ? scored.blocks : blocks
   const insightLine = scored ? summarize(scored.blocks) : null
@@ -215,7 +227,16 @@ export default function Schedule() {
 
   return (
     <div className="min-h-svh px-5 pt-[calc(env(safe-area-inset-top)+24px)] pb-32 max-w-md mx-auto md:max-w-2xl md:pt-16">
-      <h1 className="font-display text-2xl font-semibold mb-6">Schedule</h1>
+      <div className="flex items-center gap-2 mb-6">
+        <h1 className="font-display text-2xl font-semibold">Schedule</h1>
+        <button
+          onClick={() => setHelpOpen(true)}
+          aria-label="How scheduling works"
+          className="text-text-faint hover:text-text-dim p-1 -m-1"
+        >
+          <QuestionIcon />
+        </button>
+      </div>
 
       <div className="flex gap-1.5 mb-6">
         {dateIds.map((id, i) => {
@@ -320,6 +341,68 @@ export default function Schedule() {
           </div>
           {formError && <p className="text-xs text-danger">{formError}</p>}
           <Button onClick={handleAdd} disabled={busy}>Save</Button>
+        </div>
+      </Sheet>
+
+      <Sheet open={helpOpen} onClose={() => setHelpOpen(false)}>
+        <div className="flex flex-col gap-5 text-sm text-text-dim leading-relaxed">
+          <div className="text-[13px] tracking-[0.25em] text-text-faint text-center">HOW SCHEDULING WORKS</div>
+
+          <div>
+            <p className="text-text font-medium mb-1">The percentage</p>
+            <p>
+              It's the share of today's planned time you actually studied,
+              credited block by block. A block only counts once a session of
+              the matching type — Focus or Semi-focus — starts within 15
+              minutes of that block's planned start.
+            </p>
+          </div>
+
+          <div>
+            <p className="text-text font-medium mb-1">The three statuses</p>
+            <ul className="list-disc pl-4 flex flex-col gap-1">
+              <li><span className="text-live font-medium">On time</span> — a matching session started close enough and ran the full planned length.</li>
+              <li><span className="text-accent font-medium">Short</span> — a matching session started on time but ended early; you're credited for what it actually covered.</li>
+              <li><span className="text-danger font-medium">Missed</span> — nothing matching started within that 15-minute window, and the block's time has already passed.</li>
+            </ul>
+          </div>
+
+          <div>
+            <p className="text-text font-medium mb-1">If nothing's scheduled</p>
+            <p>No percentage shows at all — there's nothing to measure against. Your actual study time still shows up in the week graph either way.</p>
+          </div>
+
+          <div>
+            <p className="text-text font-medium mb-1">If you studied more than planned</p>
+            <p>
+              A block caps at 100% of its own planned length — studying 90
+              minutes for a 60-minute block doesn't push that block over 100%,
+              and the extra 30 minutes doesn't carry over to cover a
+              different block. One session can only ever satisfy one block.
+            </p>
+          </div>
+
+          <div>
+            <p className="text-text font-medium mb-1">If you studied, but it still shows Missed</p>
+            <p>
+              Usually one of two things: the session was the wrong type (a
+              Focus session doesn't satisfy a Semi-focus block, or vice
+              versa), or it started more than 15 minutes off the block's
+              planned time. Either way, the study time itself still counts
+              toward your daily and weekly totals — it just isn't tied to
+              that slot.
+            </p>
+          </div>
+
+          <div>
+            <p className="text-text font-medium mb-1">Later blocks, today</p>
+            <p>
+              A block scheduled for later this evening doesn't show as
+              Missed just because it hasn't happened yet — it's simply
+              left out of the percentage until its own time (plus the
+              15-minute window) has actually passed.
+            </p>
+          </div>
         </div>
       </Sheet>
     </div>

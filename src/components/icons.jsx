@@ -81,6 +81,16 @@ export function CopyIcon(props) {
   )
 }
 
+export function QuestionIcon(props) {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" {...props}>
+      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M9.4 9.3a2.6 2.6 0 015.1.8c0 1.8-2.5 2.1-2.5 3.7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="12" cy="16.8" r="0.95" fill="currentColor" />
+    </svg>
+  )
+}
+
 export function PinIcon(props) {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" {...props}>
