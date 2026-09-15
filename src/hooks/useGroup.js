@@ -103,10 +103,21 @@ export function useGroup(groupId, weekId, dayId, currentUid) {
         nextDaily[uid] = s.val() || 0
         setDaily({ ...nextDaily })
       }))
-      unsubs.push(onValue(ref(db, `activeSessions/${uid}`), (s) => {
-        nextLive[uid] = s.val() || null
-        setLive({ ...nextLive })
-      }))
+      unsubs.push(onValue(
+        ref(db, `activeSessions/${uid}`),
+        (s) => {
+          nextLive[uid] = s.val() || null
+          setLive({ ...nextLive })
+        },
+        () => {
+          // Permission denied — routine once that member's active session
+          // is a private semi-focus one (database.rules.json hides it from
+          // everyone but its own owner). Same as "no active session," not
+          // a real error — see usePolledValue.js's identical handler.
+          nextLive[uid] = null
+          setLive({ ...nextLive })
+        },
+      ))
     }
 
     return () => unsubs.forEach((u) => u())

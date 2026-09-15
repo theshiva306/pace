@@ -47,10 +47,22 @@ export function useMyGroups(groupIds) {
 
         Object.keys(members).forEach((uid) => {
           if (memberUnsubs.has(uid)) return
-          const unsub = onValue(ref(db, `activeSessions/${uid}`), (sessionSnap) => {
-            liveByUid[uid] = sessionSnap.exists() ? sessionSnap.val() : null
-            publish()
-          })
+          const unsub = onValue(
+            ref(db, `activeSessions/${uid}`),
+            (sessionSnap) => {
+              liveByUid[uid] = sessionSnap.exists() ? sessionSnap.val() : null
+              publish()
+            },
+            () => {
+              // Permission denied — routine once that member's active
+              // session is a private semi-focus one (database.rules.json
+              // hides it from everyone but its own owner). Same as "no
+              // active session," not a real error — see usePolledValue.js's
+              // identical handler for the full explanation.
+              liveByUid[uid] = null
+              publish()
+            },
+          )
           memberUnsubs.set(uid, unsub)
         })
 

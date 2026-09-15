@@ -124,10 +124,24 @@ export function usePolledValue(path, { enabled = true } = {}) {
     const subscribeMember = (uid) => {
       if (memberUnsubs.has(uid)) return
       const unsubs = []
-      unsubs.push(onValue(ref(db, `activeSessions/${uid}`), (snap) => {
-        sessions[uid] = snap.exists() ? snap.val() : null
-        emit()
-      }))
+      unsubs.push(onValue(
+        ref(db, `activeSessions/${uid}`),
+        (snap) => {
+          sessions[uid] = snap.exists() ? snap.val() : null
+          emit()
+        },
+        () => {
+          // Permission denied — expected and routine once someone's active
+          // session is a private semi-focus one (see database.rules.json):
+          // it's not readable by group members at all. Treated exactly
+          // like "no active session," not an error; without this handler
+          // the listener would just die silently and leave sessions[uid]
+          // stuck on whatever it last was (e.g. still showing "live" from
+          // right before they switched into a semi-focus session).
+          sessions[uid] = null
+          emit()
+        },
+      ))
 
       if (isDailyTotal || isWeeklyTotal) {
         const statPath = isDailyTotal

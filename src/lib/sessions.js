@@ -191,6 +191,7 @@ export async function deletePersonalData(uid) {
     remove(ref(db, `activeSessions/${uid}`)),
     remove(ref(db, `completedSessions/${uid}`)),
     remove(ref(db, `userStats/${uid}`)),
+    remove(ref(db, `userStatsPersonal/${uid}`)),
   ])
 }
 
