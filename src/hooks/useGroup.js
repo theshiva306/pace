@@ -106,7 +106,14 @@ export function useGroup(groupId, weekId, dayId, currentUid) {
       unsubs.push(onValue(
         ref(db, `activeSessions/${uid}`),
         (s) => {
-          nextLive[uid] = s.val() || null
+          const val = s.val() || null
+          // database.rules.json denies OTHER members read access to a
+          // semi-focus session, but a user's own node is always readable
+          // (their own Timer screen depends on that) — so for the one
+          // member who's also the viewer, a semi-focus session comes
+          // through here unfiltered. Drop it explicitly rather than
+          // relying on the rule, which can't cover this case.
+          nextLive[uid] = val && val.sessionType !== 'semiFocus' ? val : null
           setLive({ ...nextLive })
         },
         () => {

@@ -127,7 +127,13 @@ export function usePolledValue(path, { enabled = true } = {}) {
       unsubs.push(onValue(
         ref(db, `activeSessions/${uid}`),
         (snap) => {
-          sessions[uid] = snap.exists() ? snap.val() : null
+          const val = snap.exists() ? snap.val() : null
+          // database.rules.json only denies OTHER members read access to a
+          // semi-focus session — the owner's own node stays readable (their
+          // Timer screen needs it), so when the viewer IS that member this
+          // callback fires normally instead of hitting the permission-denied
+          // branch below, and needs the same filtering done explicitly.
+          sessions[uid] = val && val.sessionType !== 'semiFocus' ? val : null
           emit()
         },
         () => {

@@ -50,7 +50,12 @@ export function useMyGroups(groupIds) {
           const unsub = onValue(
             ref(db, `activeSessions/${uid}`),
             (sessionSnap) => {
-              liveByUid[uid] = sessionSnap.exists() ? sessionSnap.val() : null
+              const val = sessionSnap.exists() ? sessionSnap.val() : null
+              // The rule only blocks OTHER members from reading a semi-focus
+              // session — the owner's own node is always readable, so when
+              // the viewer is that member, it isn't caught by the
+              // permission-denied branch below and needs an explicit check.
+              liveByUid[uid] = val && val.sessionType !== 'semiFocus' ? val : null
               publish()
             },
             () => {
