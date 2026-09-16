@@ -19,6 +19,8 @@ export default function Profile() {
   const [logoutBusy, setLogoutBusy] = useState(false)
   const [deleteError, setDeleteError] = useState('')
   const [deleteSuccess, setDeleteSuccess] = useState(false)
+  const [saveError, setSaveError] = useState('')
+  const [logoutError, setLogoutError] = useState('')
   const { installed, canPromptInstall, browser, promptInstall } = useInstallPrompt()
   const notificationFeatureAvailable = isAndroidMobile() || isIOSInstalled()
   const [notifPermission, setNotifPermission] = useState(() => (notificationFeatureAvailable && 'Notification' in window ? Notification.permission : 'unsupported'))
@@ -53,15 +55,18 @@ export default function Profile() {
   }
 
   useEffect(() => {
-    if (editOpen) setName(profile?.displayName || '')
+    if (editOpen) { setName(profile?.displayName || ''); setSaveError('') }
   }, [editOpen, profile])
 
   async function handleSave() {
     if (!name.trim() || busy || logoutBusy) return
     setBusy(true)
+    setSaveError('')
     try {
       await updateDisplayName({ uid: user.uid, groupIds, name: name.trim() })
       setEditOpen(false)
+    } catch {
+      setSaveError("Couldn't save that — check your connection and try again.")
     } finally {
       setBusy(false)
     }
@@ -70,8 +75,11 @@ export default function Profile() {
   async function handleLogout() {
     if (busy || logoutBusy) return
     setLogoutBusy(true)
+    setLogoutError('')
     try {
       await logout()
+    } catch {
+      setLogoutError("Couldn't sign out — check your connection and try again.")
     } finally {
       setLogoutBusy(false)
     }
@@ -179,6 +187,7 @@ export default function Profile() {
       )}
 
       <div className="pt-2">
+        {logoutError && <p className="text-xs text-danger text-center mb-2">{logoutError}</p>}
         <button
           onClick={handleLogout}
           disabled={busy || logoutBusy}
@@ -210,6 +219,7 @@ export default function Profile() {
             onChange={(e) => setName(e.target.value.slice(0, 24))}
             className="w-full text-center font-display text-2xl bg-transparent border-b border-border focus:border-accent outline-none pb-3 mb-8"
           />
+          {saveError && <p className="text-xs text-danger mb-4">{saveError}</p>}
           <Button variant="primary" className="w-full" onClick={handleSave} disabled={busy || !name.trim()}>
             {busy ? 'Saving…' : 'Save'}
           </Button>

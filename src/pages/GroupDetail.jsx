@@ -48,6 +48,11 @@ export default function GroupDetail() {
   const memberList = Object.entries(members).map(([uid, m]) => ({ uid, ...m }))
   const isAdmin = group?.adminUid === user.uid
   const [memberSheetUid, setMemberSheetUid] = useState(null)
+  const [renameError, setRenameError] = useState('')
+  const [removeError, setRemoveError] = useState('')
+  const [leaveError, setLeaveError] = useState('')
+  const [deleteError, setDeleteError] = useState('')
+  const [clearChatError, setClearChatError] = useState('')
   const memberSheetStats = useMemo(
     () => computeMemberStats(memberList, weekly || {}, sessionCounts || {}, memberSheetUid),
     [memberList, weekly, sessionCounts, memberSheetUid],
@@ -56,8 +61,11 @@ export default function GroupDetail() {
   async function handleRename(name) {
     if (!name.trim() || busy) return
     setBusy(true)
+    setRenameError('')
     try {
       await renameGroup({ groupId, name: name.trim() })
+    } catch {
+      setRenameError("Couldn't rename the group — check your connection and try again.")
     } finally {
       setBusy(false)
     }
@@ -66,8 +74,12 @@ export default function GroupDetail() {
   async function handleRemoveMember(targetUid) {
     if (busy) return
     setBusy(true)
+    setRemoveError('')
     try {
       await removeMember({ groupId, targetUid })
+      setRemoveConfirmUid(null)
+    } catch {
+      setRemoveError("Couldn't remove that member — check your connection and try again.")
     } finally {
       setBusy(false)
     }
@@ -76,10 +88,13 @@ export default function GroupDetail() {
   async function handleLeave() {
     if (busy) return
     setBusy(true)
+    setLeaveError('')
     try {
       await leaveGroup({ uid: user.uid, groupId })
       setLeaveConfirmOpen(false)
       navigate('/groups')
+    } catch {
+      setLeaveError("Couldn't leave the group — check your connection and try again.")
     } finally {
       setBusy(false)
     }
@@ -88,10 +103,13 @@ export default function GroupDetail() {
   async function handleDelete() {
     if (busy) return
     setBusy(true)
+    setDeleteError('')
     try {
       await deleteGroup({ groupId, memberUids: memberList.map((m) => m.uid) })
       setDeleteConfirmOpen(false)
       navigate('/groups')
+    } catch {
+      setDeleteError("Couldn't delete the group — check your connection and try again.")
     } finally {
       setBusy(false)
     }
@@ -100,9 +118,12 @@ export default function GroupDetail() {
   async function handleClearChat() {
     if (busy) return
     setBusy(true)
+    setClearChatError('')
     try {
       await clearChatForSelf(user.uid, groupId, Date.now())
       setClearChatConfirmOpen(false)
+    } catch {
+      setClearChatError("Couldn't clear the chat — check your connection and try again.")
     } finally {
       setBusy(false)
     }
@@ -198,13 +219,14 @@ export default function GroupDetail() {
           memberList={memberList}
           isAdmin={isAdmin}
           busy={busy}
+          renameError={renameError}
           onRename={handleRename}
-          onRequestRemove={setRemoveConfirmUid}
-          onRequestLeave={() => { setSettingsOpen(false); setLeaveConfirmOpen(true) }}
-          onRequestDelete={() => { setSettingsOpen(false); setDeleteConfirmOpen(true) }}
+          onRequestRemove={(uid) => { setRemoveError(''); setRemoveConfirmUid(uid) }}
+          onRequestLeave={() => { setSettingsOpen(false); setLeaveError(''); setLeaveConfirmOpen(true) }}
+          onRequestDelete={() => { setSettingsOpen(false); setDeleteError(''); setDeleteConfirmOpen(true) }}
         />
       </Sheet>
-      <Sheet open={leaveConfirmOpen} onClose={() => setLeaveConfirmOpen(false)}>
+      <Sheet open={leaveConfirmOpen} onClose={() => !busy && setLeaveConfirmOpen(false)}>
         <ConfirmSheet
           title="Leave this group?"
           subtitle={
@@ -216,36 +238,40 @@ export default function GroupDetail() {
           }
           confirmLabel="Leave group"
           busy={busy}
+          error={leaveError}
           onConfirm={handleLeave}
           onCancel={() => setLeaveConfirmOpen(false)}
         />
       </Sheet>
-      <Sheet open={deleteConfirmOpen} onClose={() => setDeleteConfirmOpen(false)}>
+      <Sheet open={deleteConfirmOpen} onClose={() => !busy && setDeleteConfirmOpen(false)}>
         <ConfirmSheet
           title="Delete this group?"
           subtitle="This removes it for everyone and can't be undone."
           confirmLabel="Delete group"
           busy={busy}
+          error={deleteError}
           onConfirm={handleDelete}
           onCancel={() => setDeleteConfirmOpen(false)}
         />
       </Sheet>
-      <Sheet open={!!removeConfirmUid} onClose={() => setRemoveConfirmUid(null)}>
+      <Sheet open={!!removeConfirmUid} onClose={() => !busy && setRemoveConfirmUid(null)}>
         <ConfirmSheet
           title="Remove this member?"
           subtitle="They will leave this group and will need a new invite to rejoin."
           confirmLabel="Remove member"
           busy={busy}
-          onConfirm={async () => { await handleRemoveMember(removeConfirmUid); setRemoveConfirmUid(null) }}
+          error={removeError}
+          onConfirm={() => handleRemoveMember(removeConfirmUid)}
           onCancel={() => setRemoveConfirmUid(null)}
         />
       </Sheet>
-      <Sheet open={clearChatConfirmOpen} onClose={() => setClearChatConfirmOpen(false)}>
+      <Sheet open={clearChatConfirmOpen} onClose={() => !busy && setClearChatConfirmOpen(false)}>
         <ConfirmSheet
           title="Clear chat?"
           subtitle="This only clears your own view of the chat — other members won't be affected, and it's synced across your own devices."
           confirmLabel="Clear chat"
           busy={busy}
+          error={clearChatError}
           onConfirm={handleClearChat}
           onCancel={() => setClearChatConfirmOpen(false)}
         />
@@ -254,14 +280,15 @@ export default function GroupDetail() {
   )
 }
 
-function ConfirmSheet({ title, subtitle, confirmLabel, busy, onConfirm, onCancel }) {
+function ConfirmSheet({ title, subtitle, confirmLabel, busy, error, onConfirm, onCancel }) {
   return (
     <div className="flex flex-col items-center text-center">
       <div className="text-base font-medium mb-2">{title}</div>
       <p className="text-xs text-text-faint mb-8">{subtitle}</p>
+      {error && <p className="text-xs text-danger mb-4">{error}</p>}
       <div className="w-full flex flex-col gap-2.5">
         <Button variant="danger" className="w-full" onClick={onConfirm} disabled={busy}>{confirmLabel}</Button>
-        <Button variant="text" className="w-full" onClick={onCancel}>Cancel</Button>
+        <Button variant="text" className="w-full" onClick={onCancel} disabled={busy}>Cancel</Button>
       </div>
     </div>
   )
@@ -322,7 +349,7 @@ function InviteSheetContent({ groupId }) {
   )
 }
 
-function SettingsSheetContent({ group, memberList, isAdmin, busy, onRename, onRequestLeave, onRequestDelete, onRequestRemove }) {
+function SettingsSheetContent({ group, memberList, isAdmin, busy, renameError, onRename, onRequestLeave, onRequestDelete, onRequestRemove }) {
   const [name, setName] = useState(group?.name || '')
   useEffect(() => { setName(group?.name || '') }, [group?.name])
   const dirty = !!name.trim() && name.trim() !== group?.name
@@ -384,6 +411,7 @@ function SettingsSheetContent({ group, memberList, isAdmin, busy, onRename, onRe
                 />
                 <Button variant="ghost" onClick={() => onRename(name)} disabled={!dirty || busy}>Save</Button>
               </div>
+              {renameError && <p className="text-xs text-danger mt-2">{renameError}</p>}
             </div>
             <div className="px-4 py-3.5 border-t border-border-soft text-xs text-text-faint">
               Only admins can change the group name or remove members.

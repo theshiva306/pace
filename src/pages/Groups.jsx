@@ -20,6 +20,7 @@ export default function Groups() {
   const [createOpen, setCreateOpen] = useState(false)
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
+  const [createError, setCreateError] = useState('')
   const [pinBusy, setPinBusy] = useState(false)
 
   const pinnedGroupId = profile?.pinnedGroupId || null
@@ -32,6 +33,10 @@ export default function Groups() {
       // Tapping the already-pinned group's pin unpins it; tapping any
       // other group's pin replaces whichever was pinned before.
       await setPinnedGroup(user.uid, pinnedGroupId === groupId ? null : groupId)
+    } catch {
+      // No inline error UI on a list row for this — deliberately silent,
+      // same as the invite-link copy fallback: nothing is lost, the pin
+      // state just doesn't change, and tapping again is the retry.
     } finally {
       setPinBusy(false)
     }
@@ -40,17 +45,21 @@ export default function Groups() {
   function closeAll() {
     setCreateOpen(false)
     setName('')
+    setCreateError('')
   }
 
   async function handleCreate() {
     if (!name.trim() || busy) return
     setBusy(true)
+    setCreateError('')
     try {
       const groupId = await createGroup({
         uid: user.uid, displayName: profile?.displayName, photoURL: profile?.photoURL, name: name.trim(),
       })
       closeAll()
       navigate(`/groups/${groupId}`)
+    } catch {
+      setCreateError("Couldn't create that group — check your connection and try again.")
     } finally {
       setBusy(false)
     }
@@ -140,6 +149,7 @@ export default function Groups() {
           <Button variant="primary" className="w-full" onClick={handleCreate} disabled={busy || !name.trim()}>
             Create
           </Button>
+          {createError && <p className="text-xs text-danger mt-3">{createError}</p>}
         </div>
       </Sheet>
     </div>
