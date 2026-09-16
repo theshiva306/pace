@@ -181,9 +181,21 @@ export default function Schedule() {
   // reads as in-progress rather than prematurely "Missed": completed
   // sessions alone (fetchSessionsForDay) can't see it since it hasn't
   // been saved as one yet.
+  //
+  // A stopped-but-not-yet-saved session (status 'stopped' — the Timer
+  // tab is sitting on its "Save Session" screen, waiting for you to tap
+  // Save) counts too, using its already-frozen finalDurationSeconds
+  // rather than the live clock: useSessionClock's focusElapsed has no
+  // concept of "stopped," so it would otherwise keep climbing forever
+  // past the actual stop moment. Until it's actually saved, it's
+  // invisible everywhere else (Schedule, week totals, group
+  // leaderboards) too — this only fixes Schedule's own view of it.
   const liveSession = useActiveSession()
   const liveClock = useSessionClock(liveSession)
   const liveBelongsToToday = liveSession && dayId(new Date(liveSession.startedAt)) === todayId
+  const liveDurationSec = liveSession?.status === 'stopped'
+    ? Math.round(liveSession.finalDurationSeconds ?? 0)
+    : Math.round(liveClock.focusElapsed)
 
   const blocks = useScheduleBlocks(user.uid, selectedDateId)
 
@@ -194,24 +206,30 @@ export default function Schedule() {
   useEffect(() => {
     setDaySessions(undefined)
     fetchSessionsForDay(user.uid, selectedDateId).then(setDaySessions).catch(() => setDaySessions([]))
-  }, [user.uid, selectedDateId])
+    // Re-fetch whenever the live session's own identity changes (one
+    // starts, stops, or a different one begins) — not just on day/user
+    // change. Otherwise, finally tapping "Save" on a session that was
+    // sitting in limbo wouldn't show up here until the page is
+    // revisited: the merge below stops including it the moment it's no
+    // longer "live," but this fetch wouldn't yet know it just became a
+    // real completed session.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user.uid, selectedDateId, liveSession?.sessionId ?? null])
 
   const isFuture = selectedDateId > todayId
   const isToday = selectedDateId === todayId
 
-  // Today's fetched (completed) sessions, plus the live one in progress
-  // right now if there is one — so scoring and totals both reflect what's
+  // Today's fetched (completed) sessions, plus the live/stopped-pending
+  // one if there is one — so scoring and totals both reflect what's
   // actually happening, not just what's already been saved.
   const daySessionsWithLive = useMemo(() => {
     if (!daySessions) return daySessions
-    if (!isToday || !liveBelongsToToday) return daySessions
-    const liveDurationSec = Math.round(liveClock.focusElapsed)
-    if (liveDurationSec <= 0) return daySessions
+    if (!isToday || !liveBelongsToToday || liveDurationSec <= 0) return daySessions
     return [
       ...daySessions,
       { sessionType: liveSession.sessionType || 'focus', startedAt: liveSession.startedAt, durationSeconds: liveDurationSec },
     ]
-  }, [daySessions, isToday, liveBelongsToToday, liveSession, liveClock.focusElapsed])
+  }, [daySessions, isToday, liveBelongsToToday, liveSession, liveDurationSec])
 
   const scored = useMemo(() => {
     if (isFuture || !blocks || !daySessionsWithLive) return null
@@ -225,16 +243,16 @@ export default function Schedule() {
 
   const rows = scored ? scored.blocks : blocks
 
-  // Today's actual-time totals, folding in the live session too — feeds
-  // both the week graph's bar for today and the insight line below, so
-  // neither one looks "wrong" relative to a session that's still running.
+  // Today's actual-time totals, folding in the live/stopped-pending
+  // session too — feeds both the week graph's bar for today and the
+  // insight line below, so neither one looks "wrong" relative to a
+  // session that's still running or awaiting Save.
   const weekTotalsWithLive = useMemo(() => {
-    if (!liveBelongsToToday) return weekTotals
+    if (!liveBelongsToToday || liveDurationSec <= 0) return weekTotals
     const key = liveSession.sessionType === 'semiFocus' ? 'semiSec' : 'focusSec'
     const base = weekTotals[todayId] || { focusSec: 0, semiSec: 0 }
-    const liveDurationSec = Math.round(liveClock.focusElapsed)
     return { ...weekTotals, [todayId]: { ...base, [key]: base[key] + liveDurationSec } }
-  }, [weekTotals, liveBelongsToToday, liveSession, liveClock.focusElapsed, todayId])
+  }, [weekTotals, liveBelongsToToday, liveSession, liveDurationSec, todayId])
 
   const dayTotals = useMemo(() => {
     const actual = weekTotalsWithLive[selectedDateId]
