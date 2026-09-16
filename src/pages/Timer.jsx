@@ -420,7 +420,9 @@ export default function Timer() {
           the top row and the bottom action row below. */}
       <div className="flex-1 min-h-0 w-full flex items-center justify-center">
         {!session && (
-          <RingTimer label="READY" displaySeconds={0} totalSeconds={null} isPaused={false} />
+          <RingTimer label="READY" displaySeconds={0} totalSeconds={null} isPaused={false}>
+            <RingLink onClick={() => setSetupOpen(true)}>{summaryText}</RingLink>
+          </RingTimer>
         )}
 
         {session && clock.isOnBreak && (
@@ -455,21 +457,13 @@ export default function Timer() {
           of the window (desktop), never drifting up next to the ring. */}
       <div className="w-full max-w-xs shrink-0 flex flex-col items-center gap-3 mb-[calc(env(safe-area-inset-bottom)+76px)] md:mb-0">
         {!session && (
-          <>
-            <button
-              onClick={() => setSetupOpen(true)}
-              className="text-xs text-text-faint underline decoration-dotted underline-offset-4"
-            >
-              {summaryText}
-            </button>
-            <button
-              onClick={handleMainCta}
-              disabled={busy}
-              className="w-full bg-accent text-bg font-medium text-sm tracking-[0.1em] uppercase rounded-2xl py-4 shadow-[0_0_0_8px_var(--color-accent-soft)] active:scale-[0.98] transition-transform disabled:opacity-40"
-            >
-              Start Focus Now
-            </button>
-          </>
+          <button
+            onClick={handleMainCta}
+            disabled={busy}
+            className="w-full bg-accent text-bg font-medium text-sm tracking-[0.1em] uppercase rounded-2xl py-4 shadow-[0_0_0_8px_var(--color-accent-soft)] active:scale-[0.98] transition-transform disabled:opacity-40"
+          >
+            Start Focus Now
+          </button>
         )}
 
         {session && !clock.isOnBreak && (
