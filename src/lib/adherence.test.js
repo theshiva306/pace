@@ -14,25 +14,41 @@ describe('scoreDay', () => {
     assert.equal(adherencePct, 100)
   })
 
-  test('a small timing shift on either end is still fully credited once the session ran the planned length', () => {
-    // The block is 60 minutes; both sessions run the full 60 minutes,
-    // just shifted 14 minutes early or late. Credit is based on the
-    // session's own duration once it clearly belongs to this block, not
-    // on the literal overlap — otherwise even a tiny shift could never
-    // reach 100%, which is the wrong thing to penalize.
+  test('a session shifted a few minutes early is credited only for the overlapping slice — no grace on the start side', () => {
+    // Credit is pure time-overlap, with one exception (see below): the
+    // grace window only ever extends a block's END boundary, never its
+    // START. A 60-minute block, session starting 14 minutes early and
+    // ending 14 minutes before the block's own end, only has 46 of its
+    // 60 minutes actually inside the block's window — no early-start
+    // forgiveness, so it's "short" by 14.
     const blocks = [{ id: 'b1', title: 'Physics', type: 'focus', startMs: day0 + 8 * HOUR, endMs: day0 + 9 * HOUR }]
     const early = [{ sessionType: 'focus', startedAt: day0 + 8 * HOUR - 14 * 60 * 1000, durationSeconds: 3600 }]
-    const late = [{ sessionType: 'focus', startedAt: day0 + 8 * HOUR + 14 * 60 * 1000, durationSeconds: 3600 }]
-    assert.equal(scoreDay(blocks, early).blocks[0].status, 'done')
-    assert.equal(scoreDay(blocks, late).blocks[0].status, 'done')
+    const earlyScored = scoreDay(blocks, early).blocks[0]
+    assert.equal(earlyScored.status, 'short')
+    assert.equal(earlyScored.creditedSec, 46 * 60)
   })
 
-  test('starting late but still studying the full planned length is fully credited, not penalized for the shift', () => {
-    // 9-11am block (2h); session runs 9:15-11:15 — 15 minutes late, but
-    // a full 2 hours of study. This is the case that prompted moving
-    // off literal overlap: the overlap with the 9-11 window is only
-    // 1h45m, but the person did the whole planned amount of work, just
-    // shifted — that should read as 100%, not ~87%.
+  test('a session shifted a few minutes late is fully credited once it runs into the 15-minute grace window at the end', () => {
+    // Same block, session shifted 14 minutes late instead: starts 8:14,
+    // runs 60 minutes, ends 9:14. The block's own end (9:00) plus the
+    // 15-minute grace window covers up to 9:15, so the full 60-minute
+    // session lands entirely inside the extended window and is fully
+    // credited — this is the asymmetry: late-finish gets grace,
+    // early-start does not.
+    const blocks = [{ id: 'b1', title: 'Physics', type: 'focus', startMs: day0 + 8 * HOUR, endMs: day0 + 9 * HOUR }]
+    const late = [{ sessionType: 'focus', startedAt: day0 + 8 * HOUR + 14 * 60 * 1000, durationSeconds: 3600 }]
+    const lateScored = scoreDay(blocks, late).blocks[0]
+    assert.equal(lateScored.status, 'done')
+    assert.equal(lateScored.creditedSec, 60 * 60)
+  })
+
+  test('a late start within the 15-minute grace window is fully clawed back if the session runs enough past the scheduled end', () => {
+    // 9-11am block (2h); session runs 9:15-11:15 — 15 minutes late,
+    // but it keeps going 15 minutes past the block's own end (11:00),
+    // right up to the edge of the grace window (11:15). Since the
+    // lateness (15min) is exactly covered by the grace (15min), this
+    // fully recovers: the whole 2 hours studied lands inside the
+    // (start=9:00, graceEnd=11:15) window.
     const blocks = [{ id: 'b1', title: 'Deep work', type: 'focus', startMs: day0 + 9 * HOUR, endMs: day0 + 11 * HOUR }]
     const sessions = [{ sessionType: 'focus', startedAt: day0 + 9 * HOUR + 15 * 60 * 1000, durationSeconds: 2 * 3600 }]
     const { blocks: scored, adherencePct } = scoreDay(blocks, sessions)
@@ -41,10 +57,27 @@ describe('scoreDay', () => {
     assert.equal(adherencePct, 100)
   })
 
-  test('a session starting well after the block, running a bit short of it, is credited for its own length — not zeroed out', () => {
-    // 9am-12pm block (3h); session runs 9:16am-12:01pm (2h45m). Same
-    // family of case as above, but the session itself falls short of
-    // the full 3h, so it's credited proportionally rather than fully.
+  test('a late start beyond 15 minutes only recovers 15 minutes of grace, leaving the rest as a real shortfall', () => {
+    // The exact scenario described: 9-11am block, started 30 minutes
+    // late (9:30), kept studying past 11:00 up to 11:15 (right to the
+    // edge of the 15-minute grace window) and beyond. Overlap counted
+    // is 9:30 to 11:15 (105 min) — the grace window recovers 15 of the
+    // 30 minutes lost to the late start, leaving a 15-minute shortfall
+    // that can't be recovered no matter how much further the session runs.
+    const blocks = [{ id: 'b1', title: 'Deep work', type: 'focus', startMs: day0 + 9 * HOUR, endMs: day0 + 11 * HOUR }]
+    const sessions = [{ sessionType: 'focus', startedAt: day0 + 9 * HOUR + 30 * 60 * 1000, durationSeconds: 3 * 3600 }] // 9:30, runs 3h to 12:30 — well past the grace edge
+    const { blocks: scored, adherencePct } = scoreDay(blocks, sessions)
+    assert.equal(scored[0].status, 'short')
+    assert.equal(scored[0].creditedSec, 105 * 60)
+    assert.equal(scored[0].shortfallSec, 15 * 60)
+    assert.equal(adherencePct, 88) // 105/120, rounded
+  })
+
+  test('a session starting well after the block, ending inside the grace window, is fully credited for its own length', () => {
+    // 9am-12pm block (3h); session runs 9:16am-12:01pm (165min). The
+    // grace window extends the block's usable end to 12:15, so the
+    // full session (ending 12:01, before 12:15) is credited in full,
+    // not just the portion up to the literal 12:00 boundary.
     const blocks = [{ id: 'b1', title: 'Deep work', type: 'focus', startMs: day0 + 9 * HOUR, endMs: day0 + 12 * HOUR }]
     const sessions = [{ sessionType: 'focus', startedAt: day0 + 9 * HOUR + 16 * 60 * 1000, durationSeconds: 165 * 60 }]
     const { blocks: scored, adherencePct } = scoreDay(blocks, sessions)
@@ -53,13 +86,42 @@ describe('scoreDay', () => {
     assert.equal(adherencePct, 92) // 165/180, rounded
   })
 
-  test('a long, unrelated session that only brushes the edge of a block does not count toward it', () => {
-    // 5-hour session overlapping a 1-hour block by only 2 minutes — the
-    // overlap is real but nowhere near substantial, so this shouldn't
-    // read as "block done" just because the session itself was long.
+  test('a long, mostly-unrelated session that only brushes the edge of a block is credited for the sliver plus grace', () => {
+    // 5-hour session starting 2 minutes before a 1-hour block ends and
+    // running well past it. The grace window extends the block's usable
+    // end by 15 minutes, so the credited slice is 17 minutes (2 real +
+    // 15 grace), not just the literal 2-minute overlap. Still reads as
+    // "short" with a large shortfall rather than "missed" — there's no
+    // minimum-overlap floor.
     const blocks = [{ id: 'b1', title: 'Physics', type: 'focus', startMs: day0 + 8 * HOUR, endMs: day0 + 9 * HOUR }]
     const sessions = [{ sessionType: 'focus', startedAt: day0 + 8 * HOUR + 58 * 60 * 1000, durationSeconds: 5 * 3600 }]
-    assert.equal(scoreDay(blocks, sessions).blocks[0].status, 'missed')
+    const { blocks: scored } = scoreDay(blocks, sessions)
+    assert.equal(scored[0].status, 'short')
+    assert.equal(scored[0].creditedSec, 17 * 60)
+  })
+
+  test('the grace window is clamped so it never bleeds into a block that starts less than 15 minutes later', () => {
+    // Two blocks only 10 minutes apart (9-10, then 10:10-11). Without
+    // clamping, block 1's grace would extend to 10:15 — past block 2's
+    // own start — letting a session meant for block 2 get miscredited
+    // to block 1's leftover grace room. Clamping caps block 1's usable
+    // end at block 2's start (10:10), so only a real 10-minute grace
+    // applies here, not the full 15.
+    const blocks = [
+      { id: 'b1', title: 'Morning', type: 'focus', startMs: day0 + 9 * HOUR, endMs: day0 + 10 * HOUR },
+      { id: 'b2', title: 'Late morning', type: 'focus', startMs: day0 + 10 * HOUR + 10 * 60 * 1000, endMs: day0 + 11 * HOUR },
+    ]
+    const sessions = [{ sessionType: 'focus', startedAt: day0 + 9 * HOUR, durationSeconds: 75 * 60 }] // 9:00-10:15
+    const { blocks: scored } = scoreDay(blocks, sessions)
+    assert.equal(scored[0].actualSec, 70 * 60) // 9:00-10:10 (clamped to b2's start), not 9:00-10:15
+    assert.equal(scored[0].creditedSec, 60 * 60) // still capped at block 1's own 60min plan
+    assert.equal(scored[0].status, 'done')
+    // The session's last 5 minutes (10:10-10:15) fall inside b2's own
+    // window (it started at 10:10), so b2 does still get a small,
+    // separate 5-minute credit for that slice — it's just not part of
+    // block 1's grace, and nowhere near b2's own 50-minute plan.
+    assert.equal(scored[1].creditedSec, 5 * 60)
+    assert.equal(scored[1].status, 'short')
   })
 
   test('a session with zero overlap with the block counts as missed, however close its start was to the day', () => {
@@ -83,34 +145,37 @@ describe('scoreDay', () => {
     assert.equal(scoreDay(blocks, sessions).blocks[0].status, 'missed')
   })
 
-  test('a session cannot be double-counted toward two overlapping blocks', () => {
-    const blocks = [
-      { id: 'b1', title: 'A', type: 'focus', startMs: day0 + 8 * HOUR, endMs: day0 + 9 * HOUR },
-      { id: 'b2', title: 'B', type: 'focus', startMs: day0 + 8 * HOUR + 5 * 60 * 1000, endMs: day0 + 9 * HOUR },
-    ]
-    const sessions = [{ sessionType: 'focus', startedAt: day0 + 8 * HOUR, durationSeconds: 3600 }]
-    const { blocks: scored } = scoreDay(blocks, sessions)
-    const doneCount = scored.filter((b) => b.status === 'done').length
-    assert.equal(doneCount, 1)
-  })
-
-  test('one long session spanning two back-to-back blocks is claimed by one of them, in full', () => {
+  test('one unbroken session spanning two back-to-back blocks credits each block for its own slice', () => {
+    // This is the core fix: previously a single long session was
+    // claimed entirely by whichever block was scored first, leaving
+    // the next block "missed" even though it was studied through.
+    // Now each block is credited independently for the slice of the
+    // session that actually falls inside it.
     const blocks = [
       { id: 'b1', title: 'Morning', type: 'focus', startMs: day0 + 9 * HOUR, endMs: day0 + 10 * HOUR },
       { id: 'b2', title: 'Late morning', type: 'focus', startMs: day0 + 10 * HOUR, endMs: day0 + 11 * HOUR },
     ]
-    // 9:05-10:50 (105min) overlaps b1 for 55min and b2 for 50min. Blocks
-    // are judged chronologically, so b1 claims the session first — and
-    // since the session's own 105min duration exceeds b1's 60min plan,
-    // b1 is fully credited. b2 is left with nothing (the session is
-    // already consumed). Known tradeoff: part of that credited time
-    // technically fell within b2's window, not b1's — accepted in
-    // exchange for not penalizing ordinary late/early shifts elsewhere.
+    // 9:05-10:50 (105min) overlaps b1 for 55min and b2 for 50min.
     const sessions = [{ sessionType: 'focus', startedAt: day0 + 9 * HOUR + 5 * 60 * 1000, durationSeconds: 105 * 60 }]
     const { blocks: scored } = scoreDay(blocks, sessions)
+    assert.equal(scored[0].status, 'short')
+    assert.equal(scored[0].creditedSec, 55 * 60)
+    assert.equal(scored[1].status, 'short')
+    assert.equal(scored[1].creditedSec, 50 * 60)
+  })
+
+  test('an unbroken session that fully covers two adjacent blocks marks both done, with the gap between them uncredited', () => {
+    // The exact real-world case this fix targets: two blocks with a
+    // gap between them (12:30-2:00, then a 30min gap, then 2:30-5:00),
+    // studied straight through without stopping the timer at 2:00.
+    const blocks = [
+      { id: 'b1', title: 'Afternoon', type: 'focus', startMs: day0 + 12.5 * HOUR, endMs: day0 + 14 * HOUR },
+      { id: 'b2', title: 'Afternoon', type: 'focus', startMs: day0 + 14.5 * HOUR, endMs: day0 + 17 * HOUR },
+    ]
+    const sessions = [{ sessionType: 'focus', startedAt: day0 + 12.5 * HOUR, durationSeconds: 4.5 * 3600 }] // 12:30-17:00
+    const { blocks: scored } = scoreDay(blocks, sessions)
     assert.equal(scored[0].status, 'done')
-    assert.equal(scored[0].creditedSec, 60 * 60)
-    assert.equal(scored[1].status, 'missed')
+    assert.equal(scored[1].status, 'done')
   })
 
   test('a day with no planned blocks has no adherence percentage', () => {
