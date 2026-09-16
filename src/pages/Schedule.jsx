@@ -177,7 +177,13 @@ export default function Schedule() {
   }, [isFuture, isToday, blocks, daySessions, serverOffset])
 
   const rows = scored ? scored.blocks : blocks
-  const insightLine = scored ? summarize(scored.blocks) : null
+  const dayTotals = useMemo(() => {
+    const actual = weekTotals[selectedDateId]
+    if (!actual || !blocks) return null
+    const plannedSec = blocks.reduce((sum, b) => sum + Math.max(0, (b.endMs - b.startMs) / 1000), 0)
+    return { actualSec: actual.focusSec + actual.semiSec, plannedSec }
+  }, [weekTotals, selectedDateId, blocks])
+  const insightLine = scored ? summarize(scored.blocks, dayTotals) : null
 
   function openAdd() {
     setTitle('')
@@ -349,8 +355,8 @@ export default function Schedule() {
           <div className="text-[13px] tracking-[0.25em] text-text-faint text-center mb-1">HOW SCHEDULING WORKS</div>
           <ul className="list-disc pl-4 flex flex-col gap-2.5">
             <li>The % is credited time ÷ planned time — only for blocks whose end time has already passed.</li>
-            <li><span className="text-live font-medium">On time</span> · <span className="text-accent font-medium">Short</span> · <span className="text-danger font-medium">Missed</span> — full overlap, partial overlap, or none at all.</li>
-            <li>Credit is based on how much a <span className="text-text">matching-type</span> session actually overlaps the block, not how close its start was — starting late still counts for whatever time overlapped.</li>
+            <li><span className="text-live font-medium">On time</span> · <span className="text-accent font-medium">Short</span> · <span className="text-danger font-medium">Missed</span> — studied the full length, some of it, or none at all.</li>
+            <li>Credit is your actual focused time on a matching-type session (pauses don't count), capped at the block's planned length — starting late is fine as long as a solid chunk of the session lines up with the block.</li>
             <li>Studying more than planned still caps at 100% for that block — extra time never rolls over to a different block.</li>
             <li>Nothing scheduled that day → no % shown at all, not 0%.</li>
             <li>A block today isn't "Missed" until its own end time has passed — not while it's still ongoing or hasn't started.</li>

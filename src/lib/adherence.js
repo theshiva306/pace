@@ -1,14 +1,26 @@
+import { formatDuration } from './format.js'
+
 // Matches each scheduled block against completed sessions of the same
 // type and scores how closely the day was followed.
 //
-// Credit is based on actual time OVERLAP between a session and the
-// block's own window, not on how close the session's start time was to
-// the block's planned start. A session that begins 20 minutes late but
-// still covers nearly the whole block should be credited for that
-// overlap — not zeroed out just because it didn't start on the dot.
-// A pure start-time-tolerance check (an earlier version of this used a
-// flat 15-minute window) has no way to represent "mostly did it, just
-// started late," which is a common and legitimate case.
+// A session "belongs" to a block once a substantial share of it falls
+// inside the block's own window — at least half of whichever is
+// shorter, the block or the session. That's loose enough that starting
+// (or finishing) 15 minutes late doesn't disqualify a session that's
+// clearly the one meant for this slot, but tight enough that a long,
+// unrelated session that barely brushes the edge of a block doesn't
+// get credited for it.
+//
+// Once a session clears that bar, it's credited by its OWN duration —
+// not by the literal overlap length — capped at the block's planned
+// length. That matters: pure overlap can never reach 100% once a
+// session starts even a minute late (the minutes before the late
+// start were never available to overlap), which is the wrong thing to
+// measure — a 9-11am block started at 9:15 and studied for the full
+// 2 hours (finishing at 11:15) is fully done, not "87% done," even
+// though the literal overlap with the 9-11 window is only 1h45m.
+// What matters is whether the planned amount of work happened, loosely
+// around the right time — not exact clock alignment.
 //
 // blocks: [{ id, type: 'focus'|'semiFocus', startMs, endMs }]
 // sessions: [{ sessionType, startedAt, durationSeconds }] — completed
@@ -20,10 +32,13 @@
 // be legitimately underway.
 //
 // Returns each block annotated with a status:
-//   'missed'   — no session of the matching type overlapped the block's
-//                window at all, and the block's own end time has passed
-//   'short'    — some overlap, but less than the block's full length
-//   'done'     — the overlap covers the block's full planned length
+//   'missed'   — no session of the matching type substantially
+//                overlapped the block's window, and the block's own
+//                end time has passed
+//   'short'    — a matching session ran less than the block's planned
+//                length
+//   'done'     — a matching session ran at least the block's planned
+//                length
 //   'upcoming' — the block's own end time hasn't passed yet (it hasn't
 //                started, or is still in progress) — excluded from the
 //                percentage entirely rather than counted against it
@@ -48,16 +63,17 @@ export function scoreDay(blocks, sessions, now = Infinity) {
       }
       totalPlannedSec += plannedSec
 
-      // Whichever remaining session of the right type overlaps this
-      // block's window the most — not necessarily the one that started
-      // closest to it.
+      // Whichever remaining session of the right type clears the
+      // "belongs to this block" bar with the most overlap — not
+      // necessarily the one that started closest to it.
       let bestIndex = -1
       let bestOverlapSec = 0
       pool.forEach((s, i) => {
         if (s.sessionType !== block.type) return
         const overlapMs = Math.min(block.endMs, s.endedAt) - Math.max(block.startMs, s.startedAt)
         const overlapSec = Math.max(0, overlapMs) / 1000
-        if (overlapSec > bestOverlapSec) {
+        const requiredSec = 0.5 * Math.min(plannedSec, s.durationSeconds)
+        if (overlapSec >= requiredSec && overlapSec > bestOverlapSec) {
           bestOverlapSec = overlapSec
           bestIndex = i
         }
@@ -67,15 +83,15 @@ export function scoreDay(blocks, sessions, now = Infinity) {
         return { ...block, status: 'missed', creditedSec: 0, actualSec: 0, shortfallSec: plannedSec }
       }
       const [match] = pool.splice(bestIndex, 1) // consumed — a session can't cover two blocks
-      const creditedSec = Math.min(bestOverlapSec, plannedSec)
+      const creditedSec = Math.min(match.durationSeconds, plannedSec)
       totalCreditedSec += creditedSec
-      const status = creditedSec >= plannedSec ? 'done' : 'short'
+      const status = match.durationSeconds >= plannedSec ? 'done' : 'short'
       return {
         ...block,
         status,
         creditedSec,
         actualSec: match.durationSeconds,
-        shortfallSec: Math.max(0, plannedSec - creditedSec),
+        shortfallSec: Math.max(0, plannedSec - match.durationSeconds),
       }
     })
 
@@ -86,7 +102,21 @@ export function scoreDay(blocks, sessions, now = Infinity) {
 // A short, plain-language line for the insight card — the "oh no, I need
 // to not miss this tomorrow" nudge, built from what actually went wrong
 // rather than just stating the percentage again.
-export function summarize(scoredBlocks) {
+//
+// dayTotals (optional): { actualSec, plannedSec } for the WHOLE day —
+// every session studied, against every block scheduled — not just the
+// per-block credit above. A day where you studied well beyond
+// everything you'd planned is a genuine win even if one slot slipped,
+// so that gets said first and plainly, instead of leading with a nag
+// about the slot that came up short.
+export function summarize(scoredBlocks, dayTotals) {
+  if (dayTotals && dayTotals.plannedSec > 0) {
+    const extraSec = dayTotals.actualSec - dayTotals.plannedSec
+    if (extraSec >= 15 * 60) {
+      return `You studied ${formatDuration(extraSec)} more than you had scheduled today — great work.`
+    }
+  }
+
   const missed = scoredBlocks.filter((b) => b.status === 'missed')
   const short = scoredBlocks.filter((b) => b.status === 'short')
   if (missed.length === 0 && short.length === 0) {
