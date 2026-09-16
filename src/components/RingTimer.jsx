@@ -36,7 +36,7 @@ export function RingTimer({ label, displaySeconds, totalSeconds, isPaused, accen
   return (
     <div
       className="relative flex items-center justify-center shrink-0"
-      style={{ width: 'min(62vw, 52svh, 300px)', aspectRatio: '1' }}
+      style={{ width: 'min(78vw, 60svh, 340px)', aspectRatio: '1' }}
     >
       <svg
         viewBox="0 0 100 100"
