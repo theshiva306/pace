@@ -1,19 +1,25 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { dayId, addDays } from '../lib/day'
-import { weekStart } from '../lib/week'
+import { weekStart, weekInfo } from '../lib/week'
 import { formatDuration, formatMessageTime } from '../lib/format'
 import {
-  useScheduleBlocks, addScheduleBlock, deleteScheduleBlock, copyScheduleBlocks, fetchSessionsForDay, fetchWeekActualTotals,
+  useScheduleBlocks, addScheduleBlock, updateScheduleBlock, deleteScheduleBlock, copyScheduleBlocks,
+  fetchSessionsForDay, fetchWeekActualTotals,
 } from '../lib/schedule'
 import { scoreDay, summarize } from '../lib/adherence'
 import { useServerOffset } from '../hooks/useServerOffset'
+import { useActiveSession } from '../hooks/useActiveSession'
+import { useSessionClock } from '../hooks/useSessionClock'
 import Sheet from '../components/Sheet'
 import Button from '../components/Button'
 import SegmentedControl from '../components/SegmentedControl'
-import { PlusIcon, TrashIcon, CopyIcon, QuestionIcon } from '../components/icons'
+import {
+  PlusIcon, TrashIcon, CopyIcon, QuestionIcon, ChevronLeft, ChevronRight,
+} from '../components/icons'
 
 const WEEKDAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+const TITLE_MAX_LENGTH = 60
 
 // "2026-08-17" -> "Monday", for labeling the copy-from-previous-day button.
 function weekdayName(dateId) {
@@ -21,8 +27,12 @@ function weekdayName(dateId) {
   return new Date(y, m - 1, d).toLocaleDateString([], { weekday: 'long' })
 }
 
+// Built from addDays (calendar-component arithmetic), not raw ms math —
+// a week that spans a DST transition would otherwise risk landing on
+// the wrong local date for the days after the transition.
 function weekDateIds(anchorMonday) {
-  return Array.from({ length: 7 }, (_, i) => dayId(new Date(anchorMonday.getTime() + i * 86400000)))
+  const mondayId = dayId(anchorMonday)
+  return Array.from({ length: 7 }, (_, i) => addDays(mondayId, i))
 }
 
 // "HH:MM" (native <input type="time">'s format) -> epoch ms on the given
@@ -31,6 +41,13 @@ function timeToMs(dateId, timeStr) {
   const [y, m, d] = dateId.split('-').map(Number)
   const [h, min] = timeStr.split(':').map(Number)
   return new Date(y, m - 1, d, h, min, 0, 0).getTime()
+}
+
+// epoch ms -> "HH:MM", the inverse of timeToMs — used to prefill the edit
+// sheet and to suggest a next-block start time from an existing one.
+function msToTimeStr(ms) {
+  const d = new Date(ms)
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
 const STATUS_STYLE = {
@@ -49,19 +66,19 @@ function StatusBadge({ block }) {
   return <span className={`text-xs px-2 py-1 rounded-md shrink-0 ${style.className}`}>{label}</span>
 }
 
-function BlockRow({ block, onDelete }) {
+function BlockRow({ block, onEdit, onDeleteRequest }) {
   const typeLabel = block.type === 'semiFocus' ? 'Semi-focus' : 'Focus'
   const borderClass = block.type === 'semiFocus' ? 'border-l-semi' : 'border-l-accent'
   return (
     <div className={`flex items-center gap-3 px-3.5 py-3 bg-surface border border-border rounded-xl border-l-[3px] ${borderClass}`}>
-      <div className="flex-1 min-w-0">
+      <button onClick={() => onEdit(block)} className="flex-1 min-w-0 text-left">
         <div className="text-sm font-medium truncate">{block.title}</div>
         <div className="text-xs text-text-dim mt-0.5">
           {formatMessageTime(block.startMs)} - {formatMessageTime(block.endMs)} · {typeLabel}
         </div>
-      </div>
+      </button>
       <StatusBadge block={block} />
-      <button onClick={() => onDelete(block.id)} aria-label="Delete block" className="text-text-faint hover:text-danger p-1">
+      <button onClick={() => onDeleteRequest(block.id)} aria-label="Delete block" className="text-text-faint hover:text-danger p-1">
         <TrashIcon width="16" height="16" />
       </button>
     </div>
@@ -133,13 +150,15 @@ function WeekGraph({ dateIds, totals, selectedDateId, onSelect }) {
 export default function Schedule() {
   const { user } = useAuth()
   const todayId = dayId(new Date())
-  const [weekAnchor] = useState(() => weekStart(0))
+  const [weekOffset, setWeekOffset] = useState(0) // weeks before this one; negative = ahead
+  const weekAnchor = useMemo(() => weekStart(weekOffset), [weekOffset])
   const dateIds = useMemo(() => weekDateIds(weekAnchor), [weekAnchor])
   const [selectedDateId, setSelectedDateId] = useState(todayId)
 
   const [weekTotals, setWeekTotals] = useState({})
   const [daySessions, setDaySessions] = useState(undefined)
   const [addOpen, setAddOpen] = useState(false)
+  const [editingId, setEditingId] = useState(null) // null = adding a new block; else the block id being edited
   const [title, setTitle] = useState('')
   const [type, setType] = useState('focus')
   const [startTime, setStartTime] = useState('09:00')
@@ -149,8 +168,22 @@ export default function Schedule() {
   const [copying, setCopying] = useState(false)
   const [copyError, setCopyError] = useState('')
   const [helpOpen, setHelpOpen] = useState(false)
+  const [deleteTargetId, setDeleteTargetId] = useState(null)
+  const [deleteBusy, setDeleteBusy] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
 
   const serverOffset = useServerOffset()
+
+  // The timer's own live session — local-first, so this reflects a
+  // running session immediately even before it's synced anywhere. Used
+  // below so a block whose scheduled end has already passed, but which
+  // you're still actively studying right now (haven't hit stop yet),
+  // reads as in-progress rather than prematurely "Missed": completed
+  // sessions alone (fetchSessionsForDay) can't see it since it hasn't
+  // been saved as one yet.
+  const liveSession = useActiveSession()
+  const liveClock = useSessionClock(liveSession)
+  const liveBelongsToToday = liveSession && dayId(new Date(liveSession.startedAt)) === todayId
 
   const blocks = useScheduleBlocks(user.uid, selectedDateId)
 
@@ -166,43 +199,102 @@ export default function Schedule() {
   const isFuture = selectedDateId > todayId
   const isToday = selectedDateId === todayId
 
+  // Today's fetched (completed) sessions, plus the live one in progress
+  // right now if there is one — so scoring and totals both reflect what's
+  // actually happening, not just what's already been saved.
+  const daySessionsWithLive = useMemo(() => {
+    if (!daySessions) return daySessions
+    if (!isToday || !liveBelongsToToday) return daySessions
+    const liveDurationSec = Math.round(liveClock.focusElapsed)
+    if (liveDurationSec <= 0) return daySessions
+    return [
+      ...daySessions,
+      { sessionType: liveSession.sessionType || 'focus', startedAt: liveSession.startedAt, durationSeconds: liveDurationSec },
+    ]
+  }, [daySessions, isToday, liveBelongsToToday, liveSession, liveClock.focusElapsed])
+
   const scored = useMemo(() => {
-    if (isFuture || !blocks || !daySessions) return null
+    if (isFuture || !blocks || !daySessionsWithLive) return null
     // Only today needs an actual cutoff — a block later this evening
     // hasn't happened yet and shouldn't be judged as missed. Past days
     // are scored as fully settled regardless (scoreDay's default of
     // Infinity does that on its own), so this only branches for today.
     const now = isToday ? Date.now() + serverOffset : Infinity
-    return scoreDay(blocks, daySessions, now)
-  }, [isFuture, isToday, blocks, daySessions, serverOffset])
+    return scoreDay(blocks, daySessionsWithLive, now)
+  }, [isFuture, isToday, blocks, daySessionsWithLive, serverOffset])
 
   const rows = scored ? scored.blocks : blocks
+
+  // Today's actual-time totals, folding in the live session too — feeds
+  // both the week graph's bar for today and the insight line below, so
+  // neither one looks "wrong" relative to a session that's still running.
+  const weekTotalsWithLive = useMemo(() => {
+    if (!liveBelongsToToday) return weekTotals
+    const key = liveSession.sessionType === 'semiFocus' ? 'semiSec' : 'focusSec'
+    const base = weekTotals[todayId] || { focusSec: 0, semiSec: 0 }
+    const liveDurationSec = Math.round(liveClock.focusElapsed)
+    return { ...weekTotals, [todayId]: { ...base, [key]: base[key] + liveDurationSec } }
+  }, [weekTotals, liveBelongsToToday, liveSession, liveClock.focusElapsed, todayId])
+
   const dayTotals = useMemo(() => {
-    const actual = weekTotals[selectedDateId]
+    const actual = weekTotalsWithLive[selectedDateId]
     if (!actual || !blocks) return null
     const plannedSec = blocks.reduce((sum, b) => sum + Math.max(0, (b.endMs - b.startMs) / 1000), 0)
     return { actualSec: actual.focusSec + actual.semiSec, plannedSec }
-  }, [weekTotals, selectedDateId, blocks])
+  }, [weekTotalsWithLive, selectedDateId, blocks])
   const insightLine = scored ? summarize(scored.blocks, dayTotals) : null
 
+  function goToWeek(offset) {
+    setWeekOffset(offset)
+    const newDateIds = weekDateIds(weekStart(offset))
+    setSelectedDateId(offset === 0 ? todayId : newDateIds[0])
+  }
+
   function openAdd() {
+    setEditingId(null)
     setTitle('')
     setType('focus')
-    setStartTime('09:00')
-    setEndTime('10:00')
+    // Default to right after the day's last block, if that still lands
+    // on the same calendar day — saves retyping 09:00 every time when
+    // you're adding a third or fourth block to an already-busy day.
+    const lastEndMs = blocks && blocks.length > 0 ? Math.max(...blocks.map((b) => b.endMs)) : null
+    const suggestedEndMs = lastEndMs != null ? lastEndMs + 60 * 60 * 1000 : null
+    if (lastEndMs != null && dayId(new Date(suggestedEndMs)) === selectedDateId) {
+      setStartTime(msToTimeStr(lastEndMs))
+      setEndTime(msToTimeStr(suggestedEndMs))
+    } else {
+      setStartTime('09:00')
+      setEndTime('10:00')
+    }
     setFormError('')
     setAddOpen(true)
   }
 
-  async function handleAdd() {
+  function openEdit(block) {
+    setEditingId(block.id)
+    setTitle(block.title)
+    setType(block.type)
+    setStartTime(msToTimeStr(block.startMs))
+    setEndTime(msToTimeStr(block.endMs))
+    setFormError('')
+    setAddOpen(true)
+  }
+
+  async function handleSave() {
     if (busy) return
     if (!title.trim()) { setFormError('Enter a name for this block.'); return }
     const startMs = timeToMs(selectedDateId, startTime)
     const endMs = timeToMs(selectedDateId, endTime)
     if (endMs <= startMs) { setFormError('End time must be after the start time.'); return }
+    const overlaps = (blocks || []).some((b) => b.id !== editingId && startMs < b.endMs && endMs > b.startMs)
+    if (overlaps) { setFormError('This overlaps another block on this day.'); return }
     setBusy(true)
     try {
-      await addScheduleBlock(user.uid, selectedDateId, { title: title.trim(), type, startMs, endMs })
+      if (editingId) {
+        await updateScheduleBlock(user.uid, selectedDateId, editingId, { title: title.trim(), type, startMs, endMs })
+      } else {
+        await addScheduleBlock(user.uid, selectedDateId, { title: title.trim(), type, startMs, endMs })
+      }
       setAddOpen(false)
     } catch {
       setFormError("Couldn't save that — check your connection and try again.")
@@ -213,8 +305,22 @@ export default function Schedule() {
 
   const previousDateId = addDays(selectedDateId, -1)
 
-  function handleDelete(blockId) {
-    deleteScheduleBlock(user.uid, selectedDateId, blockId).catch(() => {})
+  function handleDeleteRequest(blockId) {
+    setDeleteTargetId(blockId)
+    setDeleteError('')
+  }
+
+  async function handleConfirmDelete() {
+    if (!deleteTargetId || deleteBusy) return
+    setDeleteBusy(true)
+    try {
+      await deleteScheduleBlock(user.uid, selectedDateId, deleteTargetId)
+      setDeleteTargetId(null)
+    } catch {
+      setDeleteError("Couldn't delete that — check your connection and try again.")
+    } finally {
+      setDeleteBusy(false)
+    }
   }
 
   async function handleCopyPrevious() {
@@ -244,10 +350,25 @@ export default function Schedule() {
         </button>
       </div>
 
+      <div className="flex items-center justify-between mb-3">
+        <button onClick={() => goToWeek(weekOffset + 1)} aria-label="Previous week" className="text-text-faint hover:text-text p-1 -m-1">
+          <ChevronLeft width="18" height="18" />
+        </button>
+        <div className="text-xs text-text-faint">{weekOffset === 0 ? 'This week' : weekInfo(weekOffset).label}</div>
+        <button
+          onClick={() => goToWeek(weekOffset - 1)}
+          aria-label="Next week"
+          className="text-text-faint hover:text-text p-1 -m-1"
+        >
+          <ChevronRight width="18" height="18" />
+        </button>
+      </div>
+
       <div className="flex gap-1.5 mb-6">
         {dateIds.map((id, i) => {
           const dayNum = Number(id.slice(-2))
           const isSelected = id === selectedDateId
+          const isToday_ = id === todayId
           return (
             <button
               key={id}
@@ -256,6 +377,9 @@ export default function Schedule() {
             >
               <div className={`text-[11px] ${isSelected ? 'text-accent' : 'text-text-faint'}`}>{WEEKDAY_LABELS[i]}</div>
               <div className={`text-sm mt-0.5 ${isSelected ? 'text-accent font-medium' : 'text-text-dim'}`}>{dayNum}</div>
+              {/* A quiet marker for "today" so it doesn't get lost once
+                  you've tapped over to browse a different day. */}
+              <div className={`w-1 h-1 rounded-full mx-auto mt-1 ${isToday_ ? 'bg-accent' : 'bg-transparent'}`} />
             </button>
           )
         })}
@@ -272,7 +396,7 @@ export default function Schedule() {
       )}
 
       <div className="mb-6">
-        <WeekGraph dateIds={dateIds} totals={weekTotals} selectedDateId={selectedDateId} onSelect={setSelectedDateId} />
+        <WeekGraph dateIds={dateIds} totals={weekTotalsWithLive} selectedDateId={selectedDateId} onSelect={setSelectedDateId} />
         <div className="flex gap-4 mt-2 text-xs text-text-dim">
           <span><span className="inline-block w-2 h-2 rounded-sm bg-accent mr-1" />Focus</span>
           <span><span className="inline-block w-2 h-2 rounded-sm bg-semi mr-1" />Semi-focus</span>
@@ -297,7 +421,8 @@ export default function Schedule() {
             {copyError && <p className="text-xs text-danger">{copyError}</p>}
           </div>
         )}
-        {rows?.map((block) => <BlockRow key={block.id} block={block} onDelete={handleDelete} />)}
+        {rows?.map((block) => <BlockRow key={block.id} block={block} onEdit={openEdit} onDeleteRequest={handleDeleteRequest} />)}
+        {deleteError && <p className="text-xs text-danger">{deleteError}</p>}
       </div>
 
       <button
@@ -310,11 +435,14 @@ export default function Schedule() {
 
       <Sheet open={addOpen} onClose={() => setAddOpen(false)}>
         <div className="flex flex-col gap-4">
-          <div className="text-[13px] tracking-[0.25em] text-text-faint text-center mb-1">NEW SCHEDULE</div>
+          <div className="text-[13px] tracking-[0.25em] text-text-faint text-center mb-1">
+            {editingId ? 'EDIT SCHEDULE' : 'NEW SCHEDULE'}
+          </div>
           <input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder="Enter name"
+            maxLength={TITLE_MAX_LENGTH}
             className="bg-elevated border border-border rounded-xl px-4 py-3 text-sm outline-none focus:border-text-faint"
           />
           <SegmentedControl
@@ -346,7 +474,22 @@ export default function Schedule() {
             </label>
           </div>
           {formError && <p className="text-xs text-danger">{formError}</p>}
-          <Button onClick={handleAdd} disabled={busy}>Save</Button>
+          <Button onClick={handleSave} disabled={busy}>Save</Button>
+        </div>
+      </Sheet>
+
+      <Sheet open={!!deleteTargetId} onClose={() => setDeleteTargetId(null)}>
+        <div className="flex flex-col items-center text-center">
+          <div className="text-base font-medium mb-2">Delete this schedule block?</div>
+          <p className="text-xs text-text-faint mb-8">This can't be undone.</p>
+          <div className="w-full flex flex-col gap-2.5">
+            <Button variant="ghost" className="w-full" onClick={handleConfirmDelete} disabled={deleteBusy}>
+              Delete
+            </Button>
+            <Button variant="text" className="w-full" onClick={() => setDeleteTargetId(null)}>
+              Cancel
+            </Button>
+          </div>
         </div>
       </Sheet>
 
