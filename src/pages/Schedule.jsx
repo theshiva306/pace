@@ -52,7 +52,12 @@ function msToTimeStr(ms) {
 
 const STATUS_STYLE = {
   done: { label: 'On time', className: 'bg-live-soft text-live' },
-  short: { label: null, className: 'bg-accent-soft text-accent' }, // label filled in per-block with the actual shortfall
+  // Deliberately not text-accent — accent is the brand gold used
+  // everywhere else (the CTA, the Focus session indicator), so reusing
+  // it here would make "you fell short" look like the same color as
+  // "this is the primary action." A distinct warning tone keeps a clean
+  // good/warning/bad three-way split.
+  short: { label: null, className: 'bg-warn-soft text-warn' }, // label filled in per-block with the actual shortfall
   missed: { label: 'Missed', className: 'bg-danger-soft text-danger' },
   // 'upcoming' deliberately has no entry — StatusBadge renders nothing for
   // it, same as a block on a future day. Its time just hasn't come yet,
@@ -167,6 +172,7 @@ export default function Schedule() {
   const [busy, setBusy] = useState(false)
   const [copying, setCopying] = useState(false)
   const [copyError, setCopyError] = useState('')
+  const [copyNote, setCopyNote] = useState('')
   const [helpOpen, setHelpOpen] = useState(false)
   const [deleteTargetId, setDeleteTargetId] = useState(null)
   const [deleteBusy, setDeleteBusy] = useState(false)
@@ -205,6 +211,7 @@ export default function Schedule() {
 
   useEffect(() => {
     setDaySessions(undefined)
+    setCopyNote('')
     fetchSessionsForDay(user.uid, selectedDateId).then(setDaySessions).catch(() => setDaySessions([]))
     // Re-fetch whenever the live session's own identity changes (one
     // starts, stops, or a different one begins) — not just on day/user
@@ -345,9 +352,11 @@ export default function Schedule() {
     if (copying) return
     setCopying(true)
     setCopyError('')
+    setCopyNote('')
     try {
-      const count = await copyScheduleBlocks(user.uid, previousDateId, selectedDateId)
-      if (count === 0) setCopyError(`${weekdayName(previousDateId)} had nothing scheduled to copy.`)
+      const { copied, skipped } = await copyScheduleBlocks(user.uid, previousDateId, selectedDateId)
+      if (copied === 0) setCopyError(`${weekdayName(previousDateId)} had nothing scheduled to copy.`)
+      else if (skipped > 0) setCopyNote(`Copied ${copied} — skipped ${skipped} that would've overlapped.`)
     } catch {
       setCopyError("Couldn't copy — check your connection and try again.")
     } finally {
@@ -407,7 +416,7 @@ export default function Schedule() {
         <div className="mb-6">
           <div className="flex items-baseline gap-2">
             <div className="font-display text-4xl font-semibold">{scored.adherencePct}%</div>
-            <div className="text-sm text-text-dim">{isToday ? 'on schedule so far' : 'on schedule that day'}</div>
+            <div className="text-sm text-text-dim">{isToday ? "today, so far" : 'that day'}</div>
           </div>
           {insightLine && <p className="text-sm text-text-dim mt-1.5 leading-relaxed">{insightLine}</p>}
         </div>
@@ -440,6 +449,11 @@ export default function Schedule() {
           </div>
         )}
         {rows?.map((block) => <BlockRow key={block.id} block={block} onEdit={openEdit} onDeleteRequest={handleDeleteRequest} />)}
+        {/* Outside the empty-state block on purpose — a partial copy (some
+            blocks skipped as overlaps) still populates rows immediately via
+            the live subscription, and this note needs to survive that,
+            not vanish the instant the empty-state disappears. */}
+        {copyNote && <p className="text-xs text-text-faint text-center">{copyNote}</p>}
         {deleteError && <p className="text-xs text-danger">{deleteError}</p>}
       </div>
 
@@ -515,12 +529,11 @@ export default function Schedule() {
         <div className="flex flex-col gap-3.5 text-sm text-text-dim leading-relaxed">
           <div className="text-[13px] tracking-[0.25em] text-text-faint text-center mb-1">HOW SCHEDULING WORKS</div>
           <ul className="list-disc pl-4 flex flex-col gap-2.5">
-            <li>The % is credited time ÷ planned time — only for blocks whose end time has already passed.</li>
-            <li><span className="text-live font-medium">On time</span> · <span className="text-accent font-medium">Short</span> · <span className="text-danger font-medium">Missed</span> — studied the full length, some of it, or none at all.</li>
-            <li>Credit is your actual focused time on a matching-type session (pauses don't count), capped at the block's planned length — starting late is fine as long as a solid chunk of the session lines up with the block.</li>
-            <li>Studying more than planned still caps at 100% for that block — extra time never rolls over to a different block.</li>
-            <li>Nothing scheduled that day → no % shown at all, not 0%.</li>
-            <li>A block today isn't "Missed" until its own end time has passed — not while it's still ongoing or hasn't started.</li>
+            <li>The % is credited time ÷ planned time, only for blocks whose end has passed — nothing scheduled means no % at all, not 0%.</li>
+            <li><span className="text-live font-medium">On time</span> · <span className="text-warn font-medium">Short</span> · <span className="text-danger font-medium">Missed</span> — studied the full length, some of it, or none.</li>
+            <li>Credit is exact clock overlap with the block — early or late by any amount loses that portion, except running up to 15 min past a block's end, which still counts. That's the only forgiveness, and it doesn't apply to a late start.</li>
+            <li>One long session spanning several back-to-back blocks credits each block for its own slice.</li>
+            <li>Studying more than planned still caps at 100% for that block — no rollover to another block.</li>
           </ul>
         </div>
       </Sheet>
