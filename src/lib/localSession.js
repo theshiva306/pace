@@ -6,10 +6,10 @@
 // whenever a connection is available; Firebase exists for cross-device
 // state and for groups to see your live status, not as the thing the
 // timer itself depends on to keep running.
-import { bankStreakUpdate } from './sessionMath'
-import { dayId } from './day'
-import { isoWeekId } from './week'
-import { writeHandoff } from './sessionHandoff'
+import { bankStreakUpdate } from './sessionMath.js'
+import { dayId } from './day.js'
+import { isoWeekId } from './week.js'
+import { writeHandoff } from './sessionHandoff.js'
 
 export const LOCAL_SESSION_CHANGE_EVENT = 'pace:localSessionChanged'
 
@@ -113,6 +113,17 @@ export function startLocal(uid, mode, targetSeconds, breaksAllowed, breakDuratio
     status: 'active',
     pausedAt: null,
     pausedSeconds: 0,
+    // Every individual pause/break as { start, end, type: 'pause'|'break' },
+    // closed out the moment it ends (see resumeLocal/endBreakLocal below)
+    // or, if the session is stopped while still mid-pause, in stopLocal.
+    // pausedSeconds above stays as the single running total everything
+    // else (focusElapsed, focusSeconds) already depends on -- this log is
+    // purely additive, for showing someone exactly when each pause
+    // happened rather than just the aggregate. Sessions saved before this
+    // field existed simply won't have it; the insights view treats
+    // "missing" and "empty" as two different, explicit things -- "wasn't
+    // tracked" vs. "genuinely had none" -- see Schedule.jsx.
+    pauseLog: [],
     breaksAllowed,
     breaksTaken: 0,
     breakDurationSeconds,
@@ -138,11 +149,13 @@ export function pauseLocal(uid, session, now) {
 export function resumeLocal(uid, session, now) {
   if (!session || session.status === 'active' || !session.pausedAt) return session
   const spent = Math.max(0, (now - Number(session.pausedAt)) / 1000)
+  const logEntry = { start: Number(session.pausedAt), end: now, type: session.status === 'onBreak' ? 'break' : 'pause' }
   const next = {
     ...session,
     status: 'active',
     pausedAt: null,
     pausedSeconds: (session.pausedSeconds || 0) + spent,
+    pauseLog: [...(session.pauseLog || []), logEntry],
     activeSince: now,
   }
   writeLocalSession(uid, next)
@@ -164,8 +177,16 @@ export const endBreakLocal = resumeLocal
 export function stopLocal(uid, session, { durationSeconds, reason = 'manual', now }) {
   if (!session || session.status === 'stopped') return session
   const bank = session.status === 'active' ? bankStreakUpdate(session, now) : {}
+  // If stopped directly from paused/onBreak (never resumed first), close
+  // out that still-open pause in the log too — otherwise it would be the
+  // one pause that never got recorded, even though pausedSeconds (used
+  // for the actual duration math) already correctly accounts for it.
+  const wasPausedOrBreak = session.status === 'paused' || session.status === 'onBreak'
+  const pauseLog = wasPausedOrBreak && session.pausedAt
+    ? [...(session.pauseLog || []), { start: Number(session.pausedAt), end: now, type: session.status === 'onBreak' ? 'break' : 'pause' }]
+    : (session.pauseLog || [])
   const next = {
-    ...session, ...bank, status: 'stopped', stoppedAt: now, finalDurationSeconds: durationSeconds, stopReason: reason,
+    ...session, ...bank, status: 'stopped', stoppedAt: now, finalDurationSeconds: durationSeconds, stopReason: reason, pauseLog,
   }
   writeLocalSession(uid, next)
   markDirty(uid)

@@ -73,10 +73,17 @@ export async function fetchSessionsForDay(uid, dateId) {
   )
   const snap = await get(sessionsQuery)
   const value = snap.val() || {}
-  return Object.values(value).map((s) => ({
+  return Object.entries(value).map(([id, s]) => ({
+    id,
     sessionType: s.sessionType || 'focus', // pre-existing sessions predate this field
     startedAt: s.startedAt,
     durationSeconds: s.durationSeconds,
+    endedAt: s.endedAt,
+    // Passed through as-is, NOT defaulted to [] — a session saved before
+    // this field existed has it as undefined, which the Schedule
+    // insights sheet deliberately treats differently from a genuinely
+    // empty array (see Schedule.jsx's pause-detail rendering).
+    pauseLog: s.pauseLog,
   }))
 }
 

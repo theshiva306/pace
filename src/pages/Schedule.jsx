@@ -65,13 +65,16 @@ const STATUS_STYLE = {
   // so there's nothing to report.
 }
 
-function StatusBadge({ block, isLive }) {
+function StatusBadge({ block, isLive, onOpenInsights }) {
   if (isLive) {
     return (
-      <span className="flex items-center gap-1.5 text-xs px-2 py-1 rounded-md shrink-0 bg-live-soft text-live">
+      <button
+        onClick={onOpenInsights}
+        className="flex items-center gap-1.5 text-xs px-2 py-1 rounded-md shrink-0 bg-live-soft text-live"
+      >
         <span className="w-1.5 h-1.5 rounded-full bg-live animate-pulse-soft" aria-hidden />
         Live
-      </span>
+      </button>
     )
   }
   if (!block.status || block.status === 'upcoming') return null
@@ -84,10 +87,14 @@ function StatusBadge({ block, isLive }) {
   const label = block.status === 'short'
     ? (block.shortfallSec < 60 ? '<1m short' : `${formatDuration(block.shortfallSec)} short`)
     : style.label
-  return <span className={`text-xs px-2 py-1 rounded-md shrink-0 ${style.className}`}>{label}</span>
+  return (
+    <button onClick={onOpenInsights} className={`text-xs px-2 py-1 rounded-md shrink-0 ${style.className}`}>
+      {label}
+    </button>
+  )
 }
 
-function BlockRow({ block, isLive, onEdit, onDeleteRequest }) {
+function BlockRow({ block, isLive, onEdit, onDeleteRequest, onOpenInsights }) {
   const typeLabel = block.type === 'semiFocus' ? 'Semi-focus' : 'Focus'
   const borderClass = block.type === 'semiFocus' ? 'border-l-semi' : 'border-l-accent'
   return (
@@ -98,11 +105,87 @@ function BlockRow({ block, isLive, onEdit, onDeleteRequest }) {
           {formatMessageTime(block.startMs)} - {formatMessageTime(block.endMs)} · {typeLabel}
         </div>
       </button>
-      <StatusBadge block={block} isLive={isLive} />
+      <StatusBadge block={block} isLive={isLive} onOpenInsights={() => onOpenInsights(block)} />
       <button onClick={() => onDeleteRequest(block.id)} aria-label="Delete block" className="text-text-faint hover:text-danger p-1">
         <TrashIcon width="16" height="16" />
       </button>
     </div>
+  )
+}
+
+// A single pause/break entry, or the fallback for a session saved before
+// pause logging existed.
+function PauseDetailLine({ session }) {
+  const rangeSec = session.endedAt && !session.stillLive
+    ? (session.endedAt - session.startedAt) / 1000 - session.durationSeconds
+    : null
+
+  if (session.pauseLog === undefined) {
+    return (
+      <div className="text-xs text-text-faint mt-1.5 italic">
+        {rangeSec !== null && rangeSec > 30
+          ? `~${formatDuration(rangeSec)} paused in total (exact pause times weren't tracked for sessions saved before this update)`
+          : "Pause detail wasn't tracked for sessions saved before this update"}
+      </div>
+    )
+  }
+  if (session.pauseLog.length === 0) {
+    return <div className="text-xs text-text-faint mt-1.5">No pauses</div>
+  }
+  return (
+    <div className="mt-1.5 space-y-0.5">
+      {session.pauseLog.map((p, i) => (
+        <div key={i} className="text-xs text-text-faint">
+          {p.type === 'break' ? 'Break' : 'Paused'} {formatMessageTime(p.start)} – {formatMessageTime(p.end)} ({formatDuration((p.end - p.start) / 1000)})
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function SessionInsightsSheet({ block, sessions, onClose }) {
+  const style = block?.status ? STATUS_STYLE[block.status] : null
+  return (
+    <Sheet open={!!block} onClose={onClose}>
+      {block && (
+        <>
+          <h2 className="text-base font-semibold mb-1 pr-8">{block.title}</h2>
+          <div className="text-xs text-text-dim mb-4">
+            {formatMessageTime(block.startMs)} – {formatMessageTime(block.endMs)}
+            {' · grace to '}{formatMessageTime(block.graceEndMs)}
+          </div>
+
+          <div className="flex items-center justify-between mb-4 px-3 py-2.5 bg-elevated rounded-lg">
+            <span className="text-sm">
+              {formatDuration(block.creditedSec)} / {formatDuration((block.endMs - block.startMs) / 1000)} planned
+            </span>
+            {style && (
+              <span className={`text-xs px-2 py-1 rounded-md ${style.className}`}>
+                {block.status === 'short' ? `${formatDuration(block.shortfallSec)} short` : style.label}
+              </span>
+            )}
+          </div>
+
+          {sessions.length === 0 ? (
+            <p className="text-sm text-text-dim">No matching sessions overlapped this block's scheduled window.</p>
+          ) : (
+            <div className="space-y-3">
+              {sessions.map((s) => (
+                <div key={s.id ?? s.startedAt} className="px-3 py-3 bg-elevated rounded-lg">
+                  <div className="text-sm font-medium">
+                    {formatMessageTime(s.startedAt)} → {s.stillLive ? 'still going' : formatMessageTime(s.endedAt ?? s.sessionEndMs)}
+                  </div>
+                  <div className="text-xs text-text-dim mt-1">
+                    Focused {formatDuration(s.durationSeconds)} · Overlapped this block {formatDuration(s.overlapSec)}
+                  </div>
+                  <PauseDetailLine session={s} />
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </Sheet>
   )
 }
 
@@ -190,6 +273,7 @@ export default function Schedule() {
   const [copyError, setCopyError] = useState('')
   const [copyNote, setCopyNote] = useState('')
   const [helpOpen, setHelpOpen] = useState(false)
+  const [insightsBlockId, setInsightsBlockId] = useState(null)
   const [deleteTargetId, setDeleteTargetId] = useState(null)
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [deleteError, setDeleteError] = useState('')
@@ -236,9 +320,12 @@ export default function Schedule() {
   // write and, especially on a slow connection, usually loses.
   const pendingCompleted = useMemo(
     () => readPendingCompleted(user.uid).map((r) => ({
+      id: r.sessionId,
       sessionType: r.data.sessionType || 'focus',
       startedAt: r.data.startedAt,
       durationSeconds: r.data.durationSeconds,
+      endedAt: r.data.endedAt,
+      pauseLog: r.data.pauseLog, // may be undefined — see localSession.js
     })),
     // Re-read on the same signal the daySessions refetch below uses --
     // a session finishing and being saved is exactly what populates
@@ -292,6 +379,32 @@ export default function Schedule() {
     ]
   }, [daySessions, pendingCompleted, selectedDateId, liveBelongsToSelectedDay, liveSession, liveDurationSec])
 
+  // Same idea as daySessionsWithLive, but keeping every field (id,
+  // endedAt, pauseLog) instead of the lean shape scoreDay needs -- this
+  // is purely for the "why did this block score the way it did"
+  // insights sheet below, never fed into scoring itself.
+  const daySessionsDetailed = useMemo(() => {
+    if (!daySessions) return daySessions
+    const knownStarts = new Set(daySessions.map((s) => s.startedAt))
+    const pendingForDay = pendingCompleted.filter(
+      (s) => !knownStarts.has(s.startedAt) && dayId(new Date(s.startedAt)) === selectedDateId,
+    )
+    const merged = pendingForDay.length > 0 ? [...daySessions, ...pendingForDay] : daySessions
+    if (!liveBelongsToSelectedDay || liveDurationSec <= 0) return merged
+    return [
+      ...merged,
+      {
+        id: liveSession.sessionId,
+        sessionType: liveSession.sessionType || 'focus',
+        startedAt: liveSession.startedAt,
+        durationSeconds: liveDurationSec,
+        endedAt: liveSession.status === 'stopped' ? liveSession.stoppedAt : null, // null while still actually live
+        pauseLog: liveSession.pauseLog,
+        stillLive: liveSession.status !== 'stopped',
+      },
+    ]
+  }, [daySessions, pendingCompleted, selectedDateId, liveBelongsToSelectedDay, liveSession, liveDurationSec])
+
   const scored = useMemo(() => {
     if (isFuture || !blocks || !daySessionsWithLive) return null
     // Only today needs an actual cutoff — a block later this evening
@@ -315,6 +428,27 @@ export default function Schedule() {
   }, [isFuture, isToday, blocks, daySessionsWithLive, serverOffset])
 
   const rows = scored ? scored.blocks : blocks
+
+  const insightsBlock = insightsBlockId ? rows?.find((b) => b.id === insightsBlockId) ?? null : null
+
+  // Every session of the matching type that overlaps this block's own
+  // window through its grace period, each carrying exactly how much of
+  // it overlapped -- the same math scoreDay uses internally to produce
+  // the single summed number, just surfaced per-session here so someone
+  // can actually see which session (and which part of it) explains the
+  // result, instead of just the final badge.
+  const insightsSessions = useMemo(() => {
+    if (!insightsBlock || !daySessionsDetailed) return []
+    return daySessionsDetailed
+      .filter((s) => s.sessionType === insightsBlock.type)
+      .map((s) => {
+        const sessionEndMs = s.startedAt + s.durationSeconds * 1000
+        const overlapMs = Math.min(insightsBlock.graceEndMs, sessionEndMs) - Math.max(insightsBlock.startMs, s.startedAt)
+        return { ...s, sessionEndMs, overlapSec: Math.max(0, overlapMs) / 1000 }
+      })
+      .filter((s) => s.overlapSec > 0)
+      .sort((a, b) => a.startedAt - b.startedAt)
+  }, [insightsBlock, daySessionsDetailed])
 
   // Which block (if any) counts as "Live" right now — a session of the
   // matching type is actually running (not paused/on-break is fine, not
@@ -546,7 +680,14 @@ export default function Schedule() {
           </div>
         )}
         {rows?.map((block) => (
-          <BlockRow key={block.id} block={block} isLive={block.id === liveBlockId} onEdit={openEdit} onDeleteRequest={handleDeleteRequest} />
+          <BlockRow
+            key={block.id}
+            block={block}
+            isLive={block.id === liveBlockId}
+            onEdit={openEdit}
+            onDeleteRequest={handleDeleteRequest}
+            onOpenInsights={(b) => setInsightsBlockId(b.id)}
+          />
         ))}
         {/* Outside the empty-state block on purpose — a partial copy (some
             blocks skipped as overlaps) still populates rows immediately via
@@ -646,6 +787,12 @@ export default function Schedule() {
           <p>If one long session runs straight through two or three blocks back to back, each of those blocks still gets credited properly for its own slice — not just the first one.</p>
         </div>
       </Sheet>
+
+      <SessionInsightsSheet
+        block={insightsBlock}
+        sessions={insightsSessions}
+        onClose={() => setInsightsBlockId(null)}
+      />
     </div>
   )
 }

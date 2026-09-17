@@ -266,12 +266,23 @@ export default function Timer() {
       sessionId: stopped.session.sessionId,
       data: {
         startedAt: stopped.session.startedAt,
-        endedAt: Date.now(),
+        // The actual moment the timer was stopped, not whenever Save
+        // happens to get tapped afterward (which could be a while later
+        // if someone lingers on the save/discard screen) — matters for
+        // the insights sheet showing an honest end time, and is simply
+        // more correct regardless.
+        endedAt: stopped.endedAtMs,
         durationSeconds: stopped.durationSeconds,
         // Defaults to 'focus' for sessions started before this field
         // existed — same backward-compat convention lib/localSession.js
         // and lib/sessionMath.js already use for their own added fields.
         sessionType: stopped.session.sessionType || 'focus',
+        // Every individual pause/break this session had, or [] if it
+        // genuinely had none — see localSession.js. Sessions started
+        // before this field existed have no pauseLog at all (undefined),
+        // which the insights view distinguishes from an empty array:
+        // "wasn't tracked" vs. "had none."
+        pauseLog: stopped.session.pauseLog || [],
         dailyBreakdown,
         weeklyBreakdown,
       },
