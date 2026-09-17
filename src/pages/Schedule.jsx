@@ -11,6 +11,7 @@ import { scoreDay, summarize } from '../lib/adherence'
 import { useServerOffset } from '../hooks/useServerOffset'
 import { useActiveSession } from '../hooks/useActiveSession'
 import { useSessionClock } from '../hooks/useSessionClock'
+import { readPendingCompleted } from '../lib/pendingCompleted'
 import Sheet from '../components/Sheet'
 import Button from '../components/Button'
 import SegmentedControl from '../components/SegmentedControl'
@@ -75,7 +76,14 @@ function StatusBadge({ block, isLive }) {
   }
   if (!block.status || block.status === 'upcoming') return null
   const style = STATUS_STYLE[block.status]
-  const label = block.status === 'short' ? `${formatDuration(block.shortfallSec)} short` : style.label
+  // formatDuration floors to whole minutes, so a shortfall under 60
+  // seconds would otherwise render as the confusing "0m short" --
+  // technically not wrong, but reads like a rounding bug. "<1m short"
+  // says the same true thing without implying more precision than the
+  // badge actually has room to show.
+  const label = block.status === 'short'
+    ? (block.shortfallSec < 60 ? '<1m short' : `${formatDuration(block.shortfallSec)} short`)
+    : style.label
   return <span className={`text-xs px-2 py-1 rounded-md shrink-0 ${style.className}`}>{label}</span>
 }
 
@@ -206,12 +214,38 @@ export default function Schedule() {
   // leaderboards) too — this only fixes Schedule's own view of it.
   const liveSession = useActiveSession()
   const liveClock = useSessionClock(liveSession)
+  // Deliberately compared against selectedDateId, not a separately
+  // recomputed "todayId" -- see the note above scored's own now
+  // selection for why that distinction matters right at midnight.
+  const liveBelongsToSelectedDay = liveSession && dayId(new Date(liveSession.startedAt)) === selectedDateId
   const liveBelongsToToday = liveSession && dayId(new Date(liveSession.startedAt)) === todayId
   const liveDurationSec = liveSession?.status === 'stopped'
     ? Math.round(liveSession.finalDurationSeconds ?? 0)
     : Math.round(liveClock.focusElapsed)
 
   const blocks = useScheduleBlocks(user.uid, selectedDateId)
+
+  // Sessions saved locally (Timer's Save button) but not yet confirmed
+  // written to the database. lib/sessionSync.js flushes this queue to
+  // Firebase as soon as a connection is available, but that flush is
+  // fire-and-forget from Timer's own Save handler -- it doesn't block
+  // anything here. Reading it directly (it's synchronous localStorage)
+  // means a session saved a moment ago doesn't silently vanish from
+  // this page for however long that write takes to land: without this,
+  // the page's own daySessions refetch (below) is racing that network
+  // write and, especially on a slow connection, usually loses.
+  const pendingCompleted = useMemo(
+    () => readPendingCompleted(user.uid).map((r) => ({
+      sessionType: r.data.sessionType || 'focus',
+      startedAt: r.data.startedAt,
+      durationSeconds: r.data.durationSeconds,
+    })),
+    // Re-read on the same signal the daySessions refetch below uses --
+    // a session finishing and being saved is exactly what populates
+    // this queue, so it's the right moment to pick it up too.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [user.uid, liveSession?.sessionId ?? null],
+  )
 
   useEffect(() => {
     fetchWeekActualTotals(user.uid, dateIds).then(setWeekTotals).catch(() => {})
@@ -227,24 +261,36 @@ export default function Schedule() {
     // sitting in limbo wouldn't show up here until the page is
     // revisited: the merge below stops including it the moment it's no
     // longer "live," but this fetch wouldn't yet know it just became a
-    // real completed session.
+    // real completed session. (pendingCompleted, above, is what actually
+    // covers the gap until this fetch eventually catches up.)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user.uid, selectedDateId, liveSession?.sessionId ?? null])
 
   const isFuture = selectedDateId > todayId
   const isToday = selectedDateId === todayId
 
-  // Today's fetched (completed) sessions, plus the live/stopped-pending
-  // one if there is one — so scoring and totals both reflect what's
-  // actually happening, not just what's already been saved.
+  // Today's fetched (completed) sessions, plus:
+  //  - any locally-saved-but-not-yet-synced session for this day
+  //    (pendingCompleted, filtered to this day and deduped against
+  //    daySessions by startedAt in case a record is fetched from
+  //    Firebase in the same beat it'd otherwise flush and get removed
+  //    from the local queue), and
+  //  - the live/stopped-pending one, if there is one for this day
+  // — so scoring and totals both reflect what's actually happened, not
+  // just what's already confirmed synced.
   const daySessionsWithLive = useMemo(() => {
     if (!daySessions) return daySessions
-    if (!isToday || !liveBelongsToToday || liveDurationSec <= 0) return daySessions
+    const knownStarts = new Set(daySessions.map((s) => s.startedAt))
+    const pendingForDay = pendingCompleted.filter(
+      (s) => !knownStarts.has(s.startedAt) && dayId(new Date(s.startedAt)) === selectedDateId,
+    )
+    const merged = pendingForDay.length > 0 ? [...daySessions, ...pendingForDay] : daySessions
+    if (!liveBelongsToSelectedDay || liveDurationSec <= 0) return merged
     return [
-      ...daySessions,
+      ...merged,
       { sessionType: liveSession.sessionType || 'focus', startedAt: liveSession.startedAt, durationSeconds: liveDurationSec },
     ]
-  }, [daySessions, isToday, liveBelongsToToday, liveSession, liveDurationSec])
+  }, [daySessions, pendingCompleted, selectedDateId, liveBelongsToSelectedDay, liveSession, liveDurationSec])
 
   const scored = useMemo(() => {
     if (isFuture || !blocks || !daySessionsWithLive) return null
@@ -252,6 +298,18 @@ export default function Schedule() {
     // hasn't happened yet and shouldn't be judged as missed. Past days
     // are scored as fully settled regardless (scoreDay's default of
     // Infinity does that on its own), so this only branches for today.
+    //
+    // Using Infinity vs. a real timestamp for a past day never actually
+    // changes the result here, even right at midnight: scoreDay's `now`
+    // only gates whether a block counts as "upcoming," and any block on
+    // a day that's already ended has an endMs earlier than literally any
+    // moment after that day is over, real timestamp or not. What DOES
+    // need care right at midnight is liveBelongsToSelectedDay above --
+    // that's compared against selectedDateId rather than a freshly
+    // recomputed "today," so a session that started at, say, 9pm and is
+    // still running past midnight keeps counting toward yesterday's
+    // block (and its grace window) instead of abruptly stopping the
+    // instant the calendar rolls over.
     const now = isToday ? Date.now() + serverOffset : Infinity
     return scoreDay(blocks, daySessionsWithLive, now)
   }, [isFuture, isToday, blocks, daySessionsWithLive, serverOffset])
@@ -261,28 +319,44 @@ export default function Schedule() {
   // Which block (if any) counts as "Live" right now — a session of the
   // matching type is actually running (not paused/on-break is fine, not
   // stopped) and the current moment falls inside that block's own window
-  // through its grace period. Deliberately keyed off wall-clock "now"
-  // rather than the session's own startedAt, so the indicator correctly
-  // moves off a block once its grace window closes even if the session
-  // itself keeps running into whatever comes next.
-  const liveNow = isToday ? Date.now() + serverOffset : null
+  // through its grace period. Gated on liveBelongsToSelectedDay (not
+  // "isToday") for the same midnight reason as above — this needs to
+  // keep working for a late-night block on selectedDateId even in the
+  // few minutes right after the calendar rolls over to a new day.
+  const liveNow = Date.now() + serverOffset
   const liveBlockId = (() => {
-    if (!liveNow || !liveSession || liveSession.status === 'stopped' || !liveBelongsToToday) return null
+    if (!liveSession || liveSession.status === 'stopped' || !liveBelongsToSelectedDay) return null
     const liveType = liveSession.sessionType || 'focus'
     const hit = rows?.find((b) => b.type === liveType && liveNow >= b.startMs && liveNow < b.graceEndMs)
     return hit?.id ?? null
   })()
 
-  // Today's actual-time totals, folding in the live/stopped-pending
-  // session too — feeds both the week graph's bar for today and the
-  // insight line below, so neither one looks "wrong" relative to a
-  // session that's still running or awaiting Save.
+  // Today's actual-time totals, folding in:
+  //  - any locally-saved-but-not-yet-synced session for today
+  //    (pendingCompleted) -- the same race fix as daySessionsWithLive
+  //    above, applied here too so the week graph's bar and the insight
+  //    line don't lag a beat behind the block list right after Save, and
+  //  - the live/stopped-pending session, if there is one
+  // Both are attributed to todayId specifically (not selectedDateId) --
+  // the week graph always shows all 7 days at once, and "today's" bar
+  // is always the one that should reflect what's currently in progress,
+  // regardless of which day's block list happens to be open below.
   const weekTotalsWithLive = useMemo(() => {
-    if (!liveBelongsToToday || liveDurationSec <= 0) return weekTotals
+    const pendingForToday = pendingCompleted.filter((s) => dayId(new Date(s.startedAt)) === todayId)
+    let totals = weekTotals
+    if (pendingForToday.length > 0) {
+      const base = totals[todayId] || { focusSec: 0, semiSec: 0 }
+      const withPending = pendingForToday.reduce((acc, s) => {
+        const key = s.sessionType === 'semiFocus' ? 'semiSec' : 'focusSec'
+        return { ...acc, [key]: acc[key] + s.durationSeconds }
+      }, base)
+      totals = { ...totals, [todayId]: withPending }
+    }
+    if (!liveBelongsToToday || liveDurationSec <= 0) return totals
     const key = liveSession.sessionType === 'semiFocus' ? 'semiSec' : 'focusSec'
-    const base = weekTotals[todayId] || { focusSec: 0, semiSec: 0 }
-    return { ...weekTotals, [todayId]: { ...base, [key]: base[key] + liveDurationSec } }
-  }, [weekTotals, liveBelongsToToday, liveSession, liveDurationSec, todayId])
+    const base = totals[todayId] || { focusSec: 0, semiSec: 0 }
+    return { ...totals, [todayId]: { ...base, [key]: base[key] + liveDurationSec } }
+  }, [weekTotals, pendingCompleted, todayId, liveBelongsToToday, liveSession, liveDurationSec])
 
   const dayTotals = useMemo(() => {
     const actual = weekTotalsWithLive[selectedDateId]
