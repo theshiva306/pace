@@ -97,18 +97,27 @@ function StatusBadge({ block, isLive, onOpenInsights }) {
 function BlockRow({ block, isLive, onEdit, onDeleteRequest, onOpenInsights }) {
   const typeLabel = block.type === 'semiFocus' ? 'Semi-focus' : 'Focus'
   const borderClass = block.type === 'semiFocus' ? 'border-l-semi' : 'border-l-accent'
+  // Once a block has settled into a final verdict (done/short/missed —
+  // not 'upcoming' or 'live', and not a future day's unscored raw block,
+  // which has no status at all), it's locked: no more editing or
+  // deleting a plan that's already history. Tapping it still does
+  // something useful though — it opens the same insights view the
+  // status badge already opens, instead of a dead row.
+  const isFinished = block.status === 'done' || block.status === 'short' || block.status === 'missed'
   return (
     <div className={`flex items-center gap-3 px-3.5 py-3 bg-surface border border-border rounded-xl border-l-[3px] ${borderClass}`}>
-      <button onClick={() => onEdit(block)} className="flex-1 min-w-0 text-left">
+      <button onClick={() => (isFinished ? onOpenInsights(block) : onEdit(block))} className="flex-1 min-w-0 text-left">
         <div className="text-sm font-medium truncate">{block.title}</div>
         <div className="text-xs text-text-dim mt-0.5">
           {formatMessageTime(block.startMs)} - {formatMessageTime(block.endMs)} · {typeLabel}
         </div>
       </button>
       <StatusBadge block={block} isLive={isLive} onOpenInsights={() => onOpenInsights(block)} />
-      <button onClick={() => onDeleteRequest(block.id)} aria-label="Delete block" className="text-text-faint hover:text-danger p-1">
-        <TrashIcon width="16" height="16" />
-      </button>
+      {!isFinished && (
+        <button onClick={() => onDeleteRequest(block.id)} aria-label="Delete block" className="text-text-faint hover:text-danger p-1">
+          <TrashIcon width="16" height="16" />
+        </button>
+      )}
     </div>
   )
 }
