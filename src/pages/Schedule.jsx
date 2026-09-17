@@ -122,6 +122,36 @@ function BlockRow({ block, isLive, onEdit, onDeleteRequest, onOpenInsights }) {
   )
 }
 
+// One pause/break period within a session, or the fallback line for a
+// session saved before pause logging existed.
+function PauseDetailLine({ session }) {
+  const rangeSec = session.endedAt && !session.stillLive
+    ? (session.endedAt - session.startedAt) / 1000 - session.durationSeconds
+    : null
+
+  if (session.pauseLog === undefined) {
+    return (
+      <div className="text-xs text-text-faint mt-1.5">
+        {rangeSec !== null && rangeSec > 30
+          ? `~${formatDuration(rangeSec)} paused (exact pause times weren't tracked for sessions saved before this update)`
+          : "Pause detail wasn't tracked for this session"}
+      </div>
+    )
+  }
+  if (session.pauseLog.length === 0) {
+    return <div className="text-xs text-text-faint mt-1.5">No pauses</div>
+  }
+  return (
+    <div className="mt-1.5 flex flex-col gap-0.5">
+      {session.pauseLog.map((p, i) => (
+        <div key={i} className="text-xs text-text-faint">
+          {p.type === 'break' ? 'Break' : 'Paused'} {formatMessageTime(p.start)} – {formatMessageTime(p.end)} ({formatDuration((p.end - p.start) / 1000)})
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function SessionInsightsSheet({ block, sessions, onClose }) {
   const style = block?.status ? STATUS_STYLE[block.status] : null
   return (
@@ -131,6 +161,7 @@ function SessionInsightsSheet({ block, sessions, onClose }) {
           <h2 className="text-base font-semibold mb-1 pr-8">{block.title}</h2>
           <div className="text-xs text-text-dim mb-4">
             {formatMessageTime(block.startMs)} – {formatMessageTime(block.endMs)}
+            {' · grace to '}{formatMessageTime(block.graceEndMs)}
           </div>
 
           <div className="flex items-center justify-between mb-4 px-3 py-2.5 bg-elevated rounded-lg">
@@ -147,21 +178,25 @@ function SessionInsightsSheet({ block, sessions, onClose }) {
           {sessions.length === 0 ? (
             <p className="text-sm text-text-dim">No study time overlapped this block.</p>
           ) : (
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-3">
               {/* Only the slice of each session that actually falls inside
                   this block's own window (plus its grace) — if a session
                   started well before the block, or ran on well after it,
                   none of that outside time is what this block cares about,
-                  so it isn't shown here. */}
+                  so it isn't shown here. Pauses are shown in full, though —
+                  those happened during this exact stretch, not outside it. */}
               {sessions.map((s) => {
                 const clippedStartMs = Math.max(block.startMs, s.startedAt)
                 const clippedEndMs = Math.min(block.graceEndMs, s.sessionEndMs)
                 return (
-                  <div key={s.id ?? s.startedAt} className="flex items-center justify-between px-3 py-2.5 bg-elevated rounded-lg text-sm">
-                    <span>
-                      {formatMessageTime(clippedStartMs)} – {s.stillLive ? 'now' : formatMessageTime(clippedEndMs)}
-                    </span>
-                    <span className="text-text-dim">{formatDuration(s.overlapSec)}</span>
+                  <div key={s.id ?? s.startedAt} className="px-3 py-2.5 bg-elevated rounded-lg text-sm">
+                    <div className="flex items-center justify-between">
+                      <span>
+                        {formatMessageTime(clippedStartMs)} – {s.stillLive ? 'now' : formatMessageTime(clippedEndMs)}
+                      </span>
+                      <span className="text-text-dim">{formatDuration(s.overlapSec)}</span>
+                    </div>
+                    <PauseDetailLine session={s} />
                   </div>
                 )
               })}
