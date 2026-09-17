@@ -64,14 +64,22 @@ const STATUS_STYLE = {
   // so there's nothing to report.
 }
 
-function StatusBadge({ block }) {
+function StatusBadge({ block, isLive }) {
+  if (isLive) {
+    return (
+      <span className="flex items-center gap-1.5 text-xs px-2 py-1 rounded-md shrink-0 bg-live-soft text-live">
+        <span className="w-1.5 h-1.5 rounded-full bg-live animate-pulse-soft" aria-hidden />
+        Live
+      </span>
+    )
+  }
   if (!block.status || block.status === 'upcoming') return null
   const style = STATUS_STYLE[block.status]
   const label = block.status === 'short' ? `${formatDuration(block.shortfallSec)} short` : style.label
   return <span className={`text-xs px-2 py-1 rounded-md shrink-0 ${style.className}`}>{label}</span>
 }
 
-function BlockRow({ block, onEdit, onDeleteRequest }) {
+function BlockRow({ block, isLive, onEdit, onDeleteRequest }) {
   const typeLabel = block.type === 'semiFocus' ? 'Semi-focus' : 'Focus'
   const borderClass = block.type === 'semiFocus' ? 'border-l-semi' : 'border-l-accent'
   return (
@@ -82,7 +90,7 @@ function BlockRow({ block, onEdit, onDeleteRequest }) {
           {formatMessageTime(block.startMs)} - {formatMessageTime(block.endMs)} · {typeLabel}
         </div>
       </button>
-      <StatusBadge block={block} />
+      <StatusBadge block={block} isLive={isLive} />
       <button onClick={() => onDeleteRequest(block.id)} aria-label="Delete block" className="text-text-faint hover:text-danger p-1">
         <TrashIcon width="16" height="16" />
       </button>
@@ -249,6 +257,21 @@ export default function Schedule() {
   }, [isFuture, isToday, blocks, daySessionsWithLive, serverOffset])
 
   const rows = scored ? scored.blocks : blocks
+
+  // Which block (if any) counts as "Live" right now — a session of the
+  // matching type is actually running (not paused/on-break is fine, not
+  // stopped) and the current moment falls inside that block's own window
+  // through its grace period. Deliberately keyed off wall-clock "now"
+  // rather than the session's own startedAt, so the indicator correctly
+  // moves off a block once its grace window closes even if the session
+  // itself keeps running into whatever comes next.
+  const liveNow = isToday ? Date.now() + serverOffset : null
+  const liveBlockId = (() => {
+    if (!liveNow || !liveSession || liveSession.status === 'stopped' || !liveBelongsToToday) return null
+    const liveType = liveSession.sessionType || 'focus'
+    const hit = rows?.find((b) => b.type === liveType && liveNow >= b.startMs && liveNow < b.graceEndMs)
+    return hit?.id ?? null
+  })()
 
   // Today's actual-time totals, folding in the live/stopped-pending
   // session too — feeds both the week graph's bar for today and the
@@ -448,7 +471,9 @@ export default function Schedule() {
             {copyError && <p className="text-xs text-danger">{copyError}</p>}
           </div>
         )}
-        {rows?.map((block) => <BlockRow key={block.id} block={block} onEdit={openEdit} onDeleteRequest={handleDeleteRequest} />)}
+        {rows?.map((block) => (
+          <BlockRow key={block.id} block={block} isLive={block.id === liveBlockId} onEdit={openEdit} onDeleteRequest={handleDeleteRequest} />
+        ))}
         {/* Outside the empty-state block on purpose — a partial copy (some
             blocks skipped as overlaps) still populates rows immediately via
             the live subscription, and this note needs to survive that,

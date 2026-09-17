@@ -72,14 +72,17 @@ export function scoreDay(blocks, sessions, now = Infinity) {
 
   const scoredBlocks = sortedBlocks.map((block, i) => {
     const plannedSec = Math.max(0, (block.endMs - block.startMs) / 1000)
+    const nextBlock = sortedBlocks[i + 1]
+    // Computed up front, before the upcoming/scored branch, so a caller
+    // (e.g. a "Live" indicator on the schedule page) can tell exactly
+    // when a block's own credit window actually closes — whether the
+    // block has been scored yet or not.
+    const graceEndMs = nextBlock ? Math.min(block.endMs + GRACE_MS, nextBlock.startMs) : block.endMs + GRACE_MS
 
     if (now < block.endMs) {
-      return { ...block, status: 'upcoming', creditedSec: 0, actualSec: 0, shortfallSec: plannedSec }
+      return { ...block, status: 'upcoming', creditedSec: 0, actualSec: 0, shortfallSec: plannedSec, graceEndMs }
     }
     totalPlannedSec += plannedSec
-
-    const nextBlock = sortedBlocks[i + 1]
-    const graceEndMs = nextBlock ? Math.min(block.endMs + GRACE_MS, nextBlock.startMs) : block.endMs + GRACE_MS
 
     let overlapSec = 0
     for (const s of sessions) {
@@ -97,6 +100,7 @@ export function scoreDay(blocks, sessions, now = Infinity) {
       ...block,
       status,
       creditedSec,
+      graceEndMs,
       actualSec: overlapSec, // raw overlap before capping — can exceed plannedSec
       shortfallSec: Math.max(0, plannedSec - creditedSec),
     }
