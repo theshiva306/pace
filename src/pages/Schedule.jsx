@@ -526,15 +526,25 @@ export default function Schedule() {
       </Sheet>
 
       <Sheet open={helpOpen} onClose={() => setHelpOpen(false)}>
-        <div className="flex flex-col gap-3.5 text-sm text-text-dim leading-relaxed">
+        <div className="flex flex-col gap-4 text-sm text-text-dim leading-relaxed">
           <div className="text-[13px] tracking-[0.25em] text-text-faint text-center mb-1">HOW SCHEDULING WORKS</div>
-          <ul className="list-disc pl-4 flex flex-col gap-2.5">
-            <li>The % is credited time ÷ planned time, only for blocks whose end has passed — nothing scheduled means no % at all, not 0%.</li>
-            <li><span className="text-live font-medium">On time</span> · <span className="text-warn font-medium">Short</span> · <span className="text-danger font-medium">Missed</span> — studied the full length, some of it, or none.</li>
-            <li>Credit is exact clock overlap with the block — early or late by any amount loses that portion, except running up to 15 min past a block's end, which still counts. That's the only forgiveness, and it doesn't apply to a late start.</li>
-            <li>One long session spanning several back-to-back blocks credits each block for its own slice.</li>
-            <li>Studying more than planned still caps at 100% for that block — no rollover to another block.</li>
+
+          <p>The % is how much of your planned time you actually studied — it only shows up once a block's end time has passed, and not at all if nothing was scheduled that day.</p>
+
+          <ul className="flex flex-col gap-1.5">
+            <li><span className="text-live font-medium">On time</span> — you studied the whole block.</li>
+            <li><span className="text-warn font-medium">Short</span> — you studied part of it.</li>
+            <li><span className="text-danger font-medium">Missed</span> — you studied none of it.</li>
           </ul>
+
+          <div className="rounded-xl border border-border bg-elevated/50 px-3.5 py-3">
+            <p className="text-text-faint text-xs mb-1.5 tracking-wide">EXAMPLE</p>
+            <p>Block is 9–11 AM. You start at 9:15 → you lose those first 15 minutes, unless you also keep studying until 11:15 — going a bit over the end time is the one way to make up for a late start. Nothing else gets that same forgiveness (finishing early, starting early — those minutes are just gone).</p>
+          </div>
+
+          <p>Studying way past a block's time doesn't boost that block above 100%, and the extra doesn't carry over to help a different block.</p>
+
+          <p>If one long session runs straight through two or three blocks back to back, each of those blocks still gets credited properly for its own slice — not just the first one.</p>
         </div>
       </Sheet>
     </div>
