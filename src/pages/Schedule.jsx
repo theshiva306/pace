@@ -161,7 +161,6 @@ function SessionInsightsSheet({ block, sessions, onClose }) {
           <h2 className="text-base font-semibold mb-1 pr-8">{block.title}</h2>
           <div className="text-xs text-text-dim mb-4">
             {formatMessageTime(block.startMs)} – {formatMessageTime(block.endMs)}
-            {' · grace to '}{formatMessageTime(block.graceEndMs)}
           </div>
 
           <div className="flex items-center justify-between mb-4 px-3 py-2.5 bg-elevated rounded-lg">
@@ -188,6 +187,13 @@ function SessionInsightsSheet({ block, sessions, onClose }) {
               {sessions.map((s) => {
                 const clippedStartMs = Math.max(block.startMs, s.startedAt)
                 const clippedEndMs = Math.min(block.graceEndMs, s.sessionEndMs)
+                // Plain-language note for the one case where the "grace
+                // window" (15 extra minutes past the block's own end that
+                // still count) actually made a difference — someone new to
+                // the app has no reason to know that term, so it's never
+                // named; it only shows up here, in its own words, exactly
+                // when it changed the numbers.
+                const graceUsedSec = Math.max(0, clippedEndMs - block.endMs) / 1000
                 return (
                   <div key={s.id ?? s.startedAt} className="px-3 py-2.5 bg-elevated rounded-lg text-sm">
                     <div className="flex items-center justify-between">
@@ -196,6 +202,11 @@ function SessionInsightsSheet({ block, sessions, onClose }) {
                       </span>
                       <span className="text-text-dim">{formatDuration(s.overlapSec)}</span>
                     </div>
+                    {graceUsedSec >= 30 && (
+                      <div className="text-xs text-text-faint mt-1">
+                        Studying {formatDuration(graceUsedSec)} past {formatMessageTime(block.endMs)} still counted toward this block.
+                      </div>
+                    )}
                     <PauseDetailLine session={s} />
                   </div>
                 )
