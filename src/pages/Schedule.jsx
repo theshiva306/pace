@@ -203,7 +203,14 @@ const LEGEND_ITEMS = [
   { key: 'studied', label: 'Studied', dot: 'var(--color-live)' },
   { key: 'paused', label: 'Paused', dot: SEGMENT_BG.paused },
   { key: 'gap', label: 'Unstudied', dot: 'var(--color-elevated)' },
-  { key: 'studiedGrace', label: 'Studied in grace', dot: SEGMENT_BG.studiedGrace },
+  // "Recovered" rather than "Studied in grace" — the latter needed you to
+  // already know what "grace" meant on this screen. This bucket only
+  // ever shows the slice of extra time that actually closed the gap
+  // between what was studied in the planned window and the planned
+  // length itself (see graceActive/neededGraceSec in
+  // SessionInsightsSheet) — so "recovered [a shortfall]" is literally
+  // what it represents.
+  { key: 'studiedGrace', label: 'Recovered', dot: SEGMENT_BG.studiedGrace },
 ]
 
 // One short callout: a bold lead clause naming the actual studied span,
@@ -250,17 +257,41 @@ function SessionInsightsSheet({ block, sessions, onClose }) {
   // no use for grace, however much extra time was studied past the
   // official end — and a block where the person paused/stopped instead
   // of continuing to focus never activated grace in the first place.
-  // Figured out from one full-window pass, then everything below either
-  // uses that pass (grace earned its place) or a window trimmed back to
-  // the plain planned end (grace never enters the picture at all).
+  //
+  // And when grace IS active, only as much of it as was actually needed
+  // to close that shortfall gets shown — never the full raw time spent
+  // studying past the end. Credit is capped at the block's own planned
+  // length either way, so once enough grace time has closed the gap,
+  // anything studied beyond that point genuinely didn't do anything for
+  // this block; narrating it as "grace" here would be misleading.
+  //
+  // The cutoff is found by walking the real grace-zone segments in
+  // chronological order until enough of them add up to what was needed
+  // — not just block.endMs plus a flat duration — so a pause sitting
+  // right at the boundary (a little studying, a pause, more studying
+  // later) still lands the cutoff on time that was actually studied,
+  // rather than assuming the recovery started right at the block's end.
   const plannedSec = Math.max(0, (block.endMs - block.startMs) / 1000)
   const fullSegments = buildTimelineSegments(block, sessions)
   const mainStudiedSec = fullSegments.filter((s) => s.type === 'studied').reduce((a, s) => a + (s.end - s.start) / 1000, 0)
   const graceStudiedSec = fullSegments.filter((s) => s.type === 'studiedGrace').reduce((a, s) => a + (s.end - s.start) / 1000, 0)
-  const graceActive = mainStudiedSec < plannedSec && graceStudiedSec > 0
-  const displayBlock = graceActive ? block : { ...block, graceEndMs: block.endMs }
+  const shortfallSec = Math.max(0, plannedSec - mainStudiedSec)
+  const neededGraceSec = Math.min(shortfallSec, graceStudiedSec)
+  const graceActive = neededGraceSec > 0
 
-  const segments = graceActive ? fullSegments : buildTimelineSegments(displayBlock, sessions)
+  let graceCutoffMs = block.endMs
+  if (graceActive) {
+    let acc = 0
+    for (const seg of fullSegments) {
+      if (seg.type !== 'studiedGrace') continue
+      const segSec = (seg.end - seg.start) / 1000
+      if (acc + segSec >= neededGraceSec) { graceCutoffMs = seg.start + (neededGraceSec - acc) * 1000; break }
+      acc += segSec
+    }
+  }
+  const displayBlock = { ...block, graceEndMs: graceCutoffMs }
+
+  const segments = buildTimelineSegments(displayBlock, sessions)
   const plannedMs = block.endMs - block.startMs
   const graceMs = displayBlock.graceEndMs - block.endMs
   const totalMs = plannedMs + graceMs
@@ -299,7 +330,7 @@ function SessionInsightsSheet({ block, sessions, onClose }) {
         </div>
         {graceActive && (
           <div style={{ width: `${gracePct}%` }} className="text-center truncate px-1">
-            Grace ({formatDuration(graceMs / 1000)})
+            Recovered ({formatDuration(graceMs / 1000)})
           </div>
         )}
       </div>
