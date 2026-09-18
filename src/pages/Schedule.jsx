@@ -243,9 +243,26 @@ function SessionInsightsSheet({ block, sessions, onClose }) {
   const style = block?.status ? STATUS_STYLE[block.status] : null
   if (!block) return <Sheet open={false} onClose={onClose} />
 
-  const segments = buildTimelineSegments(block, sessions)
+  // Grace only gets shown at all when it actually did something: the
+  // block fell short inside its own planned window AND real (not
+  // paused) studying genuinely happened during the grace extension. A
+  // block that was already fully covered within its planned window has
+  // no use for grace, however much extra time was studied past the
+  // official end — and a block where the person paused/stopped instead
+  // of continuing to focus never activated grace in the first place.
+  // Figured out from one full-window pass, then everything below either
+  // uses that pass (grace earned its place) or a window trimmed back to
+  // the plain planned end (grace never enters the picture at all).
+  const plannedSec = Math.max(0, (block.endMs - block.startMs) / 1000)
+  const fullSegments = buildTimelineSegments(block, sessions)
+  const mainStudiedSec = fullSegments.filter((s) => s.type === 'studied').reduce((a, s) => a + (s.end - s.start) / 1000, 0)
+  const graceStudiedSec = fullSegments.filter((s) => s.type === 'studiedGrace').reduce((a, s) => a + (s.end - s.start) / 1000, 0)
+  const graceActive = mainStudiedSec < plannedSec && graceStudiedSec > 0
+  const displayBlock = graceActive ? block : { ...block, graceEndMs: block.endMs }
+
+  const segments = graceActive ? fullSegments : buildTimelineSegments(displayBlock, sessions)
   const plannedMs = block.endMs - block.startMs
-  const graceMs = block.graceEndMs - block.endMs
+  const graceMs = displayBlock.graceEndMs - block.endMs
   const totalMs = plannedMs + graceMs
   const plannedPct = (plannedMs / totalMs) * 100
   const gracePct = (graceMs / totalMs) * 100
@@ -255,7 +272,7 @@ function SessionInsightsSheet({ block, sessions, onClose }) {
     return acc
   }, {})
 
-  const { lead, rest } = describeInsight(block, sessions)
+  const { lead, rest } = describeInsight(displayBlock, sessions)
 
   return (
     <Sheet open onClose={onClose}>
@@ -273,18 +290,22 @@ function SessionInsightsSheet({ block, sessions, onClose }) {
         {formatMessageTime(block.startMs)} – {formatMessageTime(block.endMs)} planned
       </div>
 
-      {/* Bracket labels above the bar, sized to match the two zones below */}
+      {/* Bracket labels above the bar, sized to match the two zones below.
+          The grace bracket only renders at all when grace actually did
+          something for this block — see graceActive above. */}
       <div className="flex text-[10px] text-text-faint mb-1">
         <div style={{ width: `${plannedPct}%` }} className="text-center truncate px-1">
           Planned block ({formatDuration(plannedMs / 1000)})
         </div>
-        <div style={{ width: `${gracePct}%` }} className="text-center truncate px-1">
-          Grace ({formatDuration(graceMs / 1000)})
-        </div>
+        {graceActive && (
+          <div style={{ width: `${gracePct}%` }} className="text-center truncate px-1">
+            Grace ({formatDuration(graceMs / 1000)})
+          </div>
+        )}
       </div>
       <div className="flex mb-1.5">
         <div style={{ width: `${plannedPct}%` }} className="border-b border-border mx-0.5" />
-        <div style={{ width: `${gracePct}%` }} className="border-b border-dashed border-border mx-0.5" />
+        {graceActive && <div style={{ width: `${gracePct}%` }} className="border-b border-dashed border-border mx-0.5" />}
       </div>
 
       <div className="relative h-6 rounded-md overflow-hidden bg-elevated mb-1.5">
@@ -303,11 +324,11 @@ function SessionInsightsSheet({ block, sessions, onClose }) {
       <div className="flex justify-between text-[10px] text-text-faint mb-4">
         <span>{formatMessageTime(block.startMs)}</span>
         <span>{formatMessageTime(block.endMs)}</span>
-        <span>{formatMessageTime(block.graceEndMs)}</span>
+        {graceActive && <span>{formatMessageTime(displayBlock.graceEndMs)}</span>}
       </div>
 
       <div className="grid grid-cols-2 gap-x-3 gap-y-2.5 mb-5">
-        {LEGEND_ITEMS.map((item) => (
+        {LEGEND_ITEMS.filter((item) => graceActive || item.key !== 'studiedGrace').map((item) => (
           <div key={item.key} className="flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: item.dot }} />
             <div className="min-w-0">
