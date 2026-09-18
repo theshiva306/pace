@@ -122,99 +122,195 @@ function BlockRow({ block, isLive, onEdit, onDeleteRequest, onOpenInsights }) {
   )
 }
 
-// One pause/break period within a session, or the fallback line for a
-// session saved before pause logging existed.
-function PauseDetailLine({ session }) {
-  const rangeSec = session.endedAt && !session.stillLive
-    ? (session.endedAt - session.startedAt) / 1000 - session.durationSeconds
-    : null
+// Splits a block's own window PLUS its grace extension into a flat,
+// ordered list of segments for the timeline bar: studied, studied
+// during the grace extension (kept separate so it can render with its
+// own hatched look), paused, and gap (nothing happened). Built from
+// every session's active/paused stretches. A session with no pauseLog
+// (saved before pause tracking existed) is just one continuous studied
+// stretch.
+function buildTimelineSegments(block, sessions) {
+  const winStart = block.startMs
+  const winEnd = block.graceEndMs
+  const winLen = winEnd - winStart
+  if (winLen <= 0) return []
 
-  if (session.pauseLog === undefined) {
-    return (
-      <div className="text-xs text-text-faint mt-1.5">
-        {rangeSec !== null && rangeSec > 30
-          ? `~${formatDuration(rangeSec)} paused (exact pause times weren't tracked for sessions saved before this update)`
-          : "Pause detail wasn't tracked for this session"}
-      </div>
-    )
+  const intervals = []
+  for (const s of sessions) {
+    const sessionEnd = s.stillLive ? Date.now() : (s.endedAt ?? s.sessionEndMs)
+    const pauses = (s.pauseLog || []).filter((p) => p.end > winStart && p.start < winEnd)
+    let cursor = s.startedAt
+    for (const p of [...pauses].sort((a, b) => a.start - b.start)) {
+      if (p.start > cursor) intervals.push({ type: 'studied', start: cursor, end: p.start })
+      cursor = Math.max(cursor, p.end)
+      intervals.push({ type: 'paused', start: p.start, end: p.end })
+    }
+    if (sessionEnd > cursor) intervals.push({ type: 'studied', start: cursor, end: sessionEnd })
   }
-  if (session.pauseLog.length === 0) {
-    return <div className="text-xs text-text-faint mt-1.5">No pauses</div>
+
+  // A studied stretch that straddles the block's own end gets split so
+  // the part past it (the grace extension) can carry its own look.
+  const split = []
+  for (const iv of intervals) {
+    if (iv.type === 'studied' && iv.start < block.endMs && iv.end > block.endMs) {
+      split.push({ type: 'studied', start: iv.start, end: block.endMs })
+      split.push({ type: 'studiedGrace', start: block.endMs, end: iv.end })
+    } else if (iv.type === 'studied' && iv.start >= block.endMs) {
+      split.push({ type: 'studiedGrace', start: iv.start, end: iv.end })
+    } else {
+      split.push(iv)
+    }
   }
-  return (
-    <div className="mt-1.5 flex flex-col gap-0.5">
-      {session.pauseLog.map((p, i) => (
-        <div key={i} className="text-xs text-text-faint">
-          {p.type === 'break' ? 'Break' : 'Paused'} {formatMessageTime(p.start)} – {formatMessageTime(p.end)} ({formatDuration((p.end - p.start) / 1000)})
-        </div>
-      ))}
-    </div>
-  )
+
+  const clipped = split
+    .map((iv) => ({ ...iv, start: Math.max(iv.start, winStart), end: Math.min(iv.end, winEnd) }))
+    .filter((iv) => iv.end > iv.start)
+    .sort((a, b) => a.start - b.start)
+
+  const segments = []
+  let cursor = winStart
+  for (const iv of clipped) {
+    if (iv.start > cursor) segments.push({ type: 'gap', start: cursor, end: iv.start })
+    segments.push(iv)
+    cursor = Math.max(cursor, iv.end)
+  }
+  if (cursor < winEnd) segments.push({ type: 'gap', start: cursor, end: winEnd })
+
+  return segments.map((seg) => ({ ...seg, pct: ((seg.end - seg.start) / winLen) * 100 }))
+}
+
+// Same four colors everywhere a timeline appears, and none of them
+// double as a meaning used elsewhere in the app for something else:
+// studied is always live-green (studying is always the good outcome,
+// regardless of how the block as a whole scored), paused is always
+// warn-orange, a gap is a neutral dark tone, and studying during the
+// grace extension is the same green as ordinary studying but hatched,
+// so it visually reads as "studied, just the bonus bit."
+const SEGMENT_BG = {
+  studied: 'var(--color-live)',
+  studiedGrace: 'repeating-linear-gradient(45deg, var(--color-live), var(--color-live) 4px, var(--color-elevated) 4px, var(--color-elevated) 8px)',
+  paused: 'var(--color-warn)',
+  gap: 'var(--color-elevated)',
+}
+
+const LEGEND_ITEMS = [
+  { key: 'studied', label: 'Studied', dot: 'var(--color-live)' },
+  { key: 'paused', label: 'Paused', dot: 'var(--color-warn)' },
+  { key: 'gap', label: 'Unstudied', dot: 'var(--color-elevated)' },
+  { key: 'studiedGrace', label: 'Studied in grace', dot: SEGMENT_BG.studiedGrace },
+]
+
+// One short callout: a bold lead clause naming the actual studied span,
+// then a lighter sentence covering pauses and any grace extension used
+// — in plain words, but "grace" is fine to name here since the bar
+// right above it already labels and defines that zone visually.
+function describeInsight(block, sessions) {
+  const segments = buildTimelineSegments(block, sessions)
+  const studiedSegs = segments.filter((s) => s.type === 'studied' || s.type === 'studiedGrace')
+  if (studiedSegs.length === 0) return { lead: 'No study time overlapped this block.', rest: '' }
+
+  const firstStart = Math.min(...studiedSegs.map((s) => s.start))
+  const lastEnd = Math.max(...studiedSegs.map((s) => s.end))
+  const lead = `Studied ${formatMessageTime(firstStart)} – ${formatMessageTime(lastEnd)},`
+
+  const pauseCount = segments.filter((s) => s.type === 'paused').length
+  const graceSec = segments.filter((s) => s.type === 'studiedGrace').reduce((a, s) => a + (s.end - s.start) / 1000, 0)
+
+  const restParts = []
+  if (pauseCount === 1) restParts.push('with one short pause in between')
+  else if (pauseCount > 1) restParts.push(`with ${pauseCount} short pauses in between`)
+  let rest = restParts.length > 0 ? `${restParts.join(', ')}.` : ''
+  if (graceSec >= 30) {
+    rest += `${rest ? ' ' : ''}Continued ${formatDuration(graceSec)} past the scheduled end (counted in grace).`
+  }
+  return { lead, rest }
 }
 
 function SessionInsightsSheet({ block, sessions, onClose }) {
   const style = block?.status ? STATUS_STYLE[block.status] : null
+  if (!block) return <Sheet open={false} onClose={onClose} />
+
+  const segments = buildTimelineSegments(block, sessions)
+  const plannedMs = block.endMs - block.startMs
+  const graceMs = block.graceEndMs - block.endMs
+  const totalMs = plannedMs + graceMs
+  const plannedPct = (plannedMs / totalMs) * 100
+  const gracePct = (graceMs / totalMs) * 100
+
+  const totalsByType = segments.reduce((acc, seg) => {
+    acc[seg.type] = (acc[seg.type] || 0) + (seg.end - seg.start) / 1000
+    return acc
+  }, {})
+
+  const { lead, rest } = describeInsight(block, sessions)
+
   return (
-    <Sheet open={!!block} onClose={onClose}>
-      {block && (
-        <>
-          <h2 className="text-base font-semibold mb-1 pr-8">{block.title}</h2>
-          <div className="text-xs text-text-dim mb-4">
-            {formatMessageTime(block.startMs)} – {formatMessageTime(block.endMs)}
-          </div>
+    <Sheet open onClose={onClose}>
+      <div className="flex items-center justify-between gap-2 mb-1 pr-8">
+        <h2 className="text-base font-semibold truncate">{block.title}</h2>
+        {style && (
+          <span className={`text-xs px-2 py-1 rounded-md shrink-0 ${style.className}`}>
+            {block.status === 'short'
+              ? (block.shortfallSec < 60 ? '<1m short' : `${formatDuration(block.shortfallSec)} short`)
+              : style.label}
+          </span>
+        )}
+      </div>
+      <div className="text-xs text-text-dim mb-4">
+        {formatMessageTime(block.startMs)} – {formatMessageTime(block.endMs)} planned
+      </div>
 
-          <div className="flex items-center justify-between mb-4 px-3 py-2.5 bg-elevated rounded-lg">
-            <span className="text-sm">
-              {formatDuration(block.creditedSec)} / {formatDuration((block.endMs - block.startMs) / 1000)} planned
-            </span>
-            {style && (
-              <span className={`text-xs px-2 py-1 rounded-md ${style.className}`}>
-                {block.status === 'short' ? `${formatDuration(block.shortfallSec)} short` : style.label}
-              </span>
-            )}
-          </div>
+      {/* Bracket labels above the bar, sized to match the two zones below */}
+      <div className="flex text-[10px] text-text-faint mb-1">
+        <div style={{ width: `${plannedPct}%` }} className="text-center truncate px-1">
+          Planned block ({formatDuration(plannedMs / 1000)})
+        </div>
+        <div style={{ width: `${gracePct}%` }} className="text-center truncate px-1">
+          Grace ({formatDuration(graceMs / 1000)})
+        </div>
+      </div>
+      <div className="flex mb-1.5">
+        <div style={{ width: `${plannedPct}%` }} className="border-b border-border mx-0.5" />
+        <div style={{ width: `${gracePct}%` }} className="border-b border-dashed border-border mx-0.5" />
+      </div>
 
-          {sessions.length === 0 ? (
-            <p className="text-sm text-text-dim">No study time overlapped this block.</p>
-          ) : (
-            <div className="flex flex-col gap-3">
-              {/* Only the slice of each session that actually falls inside
-                  this block's own window (plus its grace) — if a session
-                  started well before the block, or ran on well after it,
-                  none of that outside time is what this block cares about,
-                  so it isn't shown here. Pauses are shown in full, though —
-                  those happened during this exact stretch, not outside it. */}
-              {sessions.map((s) => {
-                const clippedStartMs = Math.max(block.startMs, s.startedAt)
-                const clippedEndMs = Math.min(block.graceEndMs, s.sessionEndMs)
-                // Plain-language note for the one case where the "grace
-                // window" (15 extra minutes past the block's own end that
-                // still count) actually made a difference — someone new to
-                // the app has no reason to know that term, so it's never
-                // named; it only shows up here, in its own words, exactly
-                // when it changed the numbers.
-                const graceUsedSec = Math.max(0, clippedEndMs - block.endMs) / 1000
-                return (
-                  <div key={s.id ?? s.startedAt} className="px-3 py-2.5 bg-elevated rounded-lg text-sm">
-                    <div className="flex items-center justify-between">
-                      <span>
-                        {formatMessageTime(clippedStartMs)} – {s.stillLive ? 'now' : formatMessageTime(clippedEndMs)}
-                      </span>
-                      <span className="text-text-dim">{formatDuration(s.overlapSec)}</span>
-                    </div>
-                    {graceUsedSec >= 30 && (
-                      <div className="text-xs text-text-faint mt-1">
-                        Studying {formatDuration(graceUsedSec)} past {formatMessageTime(block.endMs)} still counted toward this block.
-                      </div>
-                    )}
-                    <PauseDetailLine session={s} />
-                  </div>
-                )
-              })}
+      <div className="relative h-6 rounded-md overflow-hidden bg-elevated mb-1.5">
+        {segments.map((seg, i) => {
+          let left = 0
+          for (let j = 0; j < i; j++) left += segments[j].pct
+          return (
+            <div
+              key={i}
+              className="absolute inset-y-0"
+              style={{ left: `${left}%`, width: `${seg.pct}%`, background: SEGMENT_BG[seg.type] }}
+            />
+          )
+        })}
+      </div>
+      <div className="flex justify-between text-[10px] text-text-faint mb-4">
+        <span>{formatMessageTime(block.startMs)}</span>
+        <span>{formatMessageTime(block.endMs)}</span>
+        <span>{formatMessageTime(block.graceEndMs)}</span>
+      </div>
+
+      <div className="grid grid-cols-2 gap-x-3 gap-y-2.5 mb-5">
+        {LEGEND_ITEMS.map((item) => (
+          <div key={item.key} className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: item.dot }} />
+            <div className="min-w-0">
+              <div className="text-xs text-text-dim leading-tight">{item.label}</div>
+              <div className="text-sm leading-tight">{formatDuration(totalsByType[item.key] || 0)}</div>
             </div>
-          )}
-        </>
-      )}
+          </div>
+        ))}
+      </div>
+
+      <div className="flex gap-3 px-3.5 py-3 bg-elevated rounded-xl">
+        <span className="w-7 h-7 rounded-full bg-accent-soft text-accent flex items-center justify-center shrink-0 text-sm">✦</span>
+        <p className="text-sm leading-relaxed">
+          <span className="font-medium">{lead}</span>{rest && <span className="text-text-dim"> {rest}</span>}
+        </p>
+      </div>
     </Sheet>
   )
 }
