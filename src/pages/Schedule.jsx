@@ -179,23 +179,25 @@ function buildTimelineSegments(block, sessions) {
   return segments.map((seg) => ({ ...seg, pct: ((seg.end - seg.start) / winLen) * 100 }))
 }
 
-// Same four colors everywhere a timeline appears, and none of them
-// double as a meaning used elsewhere in the app for something else:
-// studied is always live-green (studying is always the good outcome,
-// regardless of how the block as a whole scored), paused is always
-// warn-orange, a gap is a neutral dark tone, and studying during the
-// grace extension is the same green as ordinary studying but hatched,
-// so it visually reads as "studied, just the bonus bit."
+// Same colors everywhere a timeline appears, and none of them double as
+// a meaning used elsewhere in the app for something else: studied is
+// always live-green (studying is always the good outcome, regardless of
+// how the block as a whole scored), a pause or break is a neutral
+// dashed pattern — it isn't a "win" or "loss" on its own, so it doesn't
+// get a color that means either — a gap is a plain dark tone, and
+// studying during the grace extension is the same green as ordinary
+// studying but hatched, so it visually reads as "studied, just the
+// bonus bit."
 const SEGMENT_BG = {
   studied: 'var(--color-live)',
   studiedGrace: 'repeating-linear-gradient(45deg, var(--color-live), var(--color-live) 4px, var(--color-elevated) 4px, var(--color-elevated) 8px)',
-  paused: 'var(--color-warn)',
+  paused: 'repeating-linear-gradient(45deg, var(--color-elevated), var(--color-elevated) 4px, var(--color-border) 4px, var(--color-border) 8px)',
   gap: 'var(--color-elevated)',
 }
 
 const LEGEND_ITEMS = [
   { key: 'studied', label: 'Studied', dot: 'var(--color-live)' },
-  { key: 'paused', label: 'Paused', dot: 'var(--color-warn)' },
+  { key: 'paused', label: 'Paused', dot: SEGMENT_BG.paused },
   { key: 'gap', label: 'Unstudied', dot: 'var(--color-elevated)' },
   { key: 'studiedGrace', label: 'Studied in grace', dot: SEGMENT_BG.studiedGrace },
 ]
@@ -207,22 +209,29 @@ const LEGEND_ITEMS = [
 function describeInsight(block, sessions) {
   const segments = buildTimelineSegments(block, sessions)
   const studiedSegs = segments.filter((s) => s.type === 'studied' || s.type === 'studiedGrace')
-  if (studiedSegs.length === 0) return { lead: 'No study time overlapped this block.', rest: '' }
+  if (studiedSegs.length === 0) return { lead: 'No study time overlapped this block', rest: '' }
 
   const firstStart = Math.min(...studiedSegs.map((s) => s.start))
-  const lastEnd = Math.max(...studiedSegs.map((s) => s.end))
-  const lead = `Studied ${formatMessageTime(firstStart)} – ${formatMessageTime(lastEnd)},`
+  const totalStudiedSec = studiedSegs.reduce((a, s) => a + (s.end - s.start) / 1000, 0)
+  const lead = `Studied ${formatDuration(totalStudiedSec)}`
 
-  const pauseCount = segments.filter((s) => s.type === 'paused').length
+  const lateSec = Math.max(0, firstStart - block.startMs) / 1000
+  const pauseDurationsSec = segments.filter((s) => s.type === 'paused').map((s) => (s.end - s.start) / 1000)
   const graceSec = segments.filter((s) => s.type === 'studiedGrace').reduce((a, s) => a + (s.end - s.start) / 1000, 0)
 
-  const restParts = []
-  if (pauseCount === 1) restParts.push('with one short pause in between')
-  else if (pauseCount > 1) restParts.push(`with ${pauseCount} short pauses in between`)
-  let rest = restParts.length > 0 ? `${restParts.join(', ')}.` : ''
-  if (graceSec >= 30) {
-    rest += `${rest ? ' ' : ''}Continued ${formatDuration(graceSec)} past the scheduled end (counted in grace).`
+  const clauses = []
+  if (lateSec >= 60) clauses.push(`started a bit late at ${formatMessageTime(firstStart)}`)
+  if (pauseDurationsSec.length === 1) {
+    clauses.push(`paused once (${formatDuration(pauseDurationsSec[0])})`)
+  } else if (pauseDurationsSec.length > 1) {
+    // Durations only, never clock times — how long each pause ran is
+    // what's useful here, not when it happened.
+    const countWord = pauseDurationsSec.length === 2 ? 'twice' : `${pauseDurationsSec.length} times`
+    clauses.push(`paused ${countWord} (${pauseDurationsSec.map((s) => formatDuration(s)).join(', ')})`)
   }
+  if (graceSec >= 30) clauses.push(`continued ${formatDuration(graceSec)} past the scheduled end`)
+
+  const rest = clauses.length > 0 ? `${clauses.join(', ')}.` : ''
   return { lead, rest }
 }
 
@@ -308,7 +317,7 @@ function SessionInsightsSheet({ block, sessions, onClose }) {
       <div className="flex gap-3 px-3.5 py-3 bg-elevated rounded-xl">
         <span className="w-7 h-7 rounded-full bg-accent-soft text-accent flex items-center justify-center shrink-0 text-sm">✦</span>
         <p className="text-sm leading-relaxed">
-          <span className="font-medium">{lead}</span>{rest && <span className="text-text-dim"> {rest}</span>}
+          <span className="font-medium">{lead}{rest ? ',' : '.'}</span>{rest && <span className="text-text-dim"> {rest}</span>}
         </p>
       </div>
     </Sheet>
