@@ -7,7 +7,7 @@ import {
   useScheduleBlocks, addScheduleBlock, updateScheduleBlock, deleteScheduleBlock, copyScheduleBlocks,
   fetchSessionsForDay, fetchWeekActualTotals,
 } from '../lib/schedule'
-import { scoreDay, summarize } from '../lib/adherence'
+import { scoreDay, summarize, sessionOverlapSec } from '../lib/adherence'
 import { useServerOffset } from '../hooks/useServerOffset'
 import { useActiveSession } from '../hooks/useActiveSession'
 import { useSessionClock } from '../hooks/useSessionClock'
@@ -137,7 +137,11 @@ function buildTimelineSegments(block, sessions) {
 
   const intervals = []
   for (const s of sessions) {
-    const sessionEnd = s.stillLive ? Date.now() : (s.endedAt ?? s.sessionEndMs)
+    // Real stop time when we have one; falls back to the old compressed
+    // approximation only for sessions saved before `endedAt` existed —
+    // there's no real timing data to recover for those. See
+    // lib/adherence.js's studiedIntervals for the same fallback.
+    const sessionEnd = s.stillLive ? Date.now() : (s.endedAt ?? (s.startedAt + s.durationSeconds * 1000))
     const pauses = (s.pauseLog || []).filter((p) => p.end > winStart && p.start < winEnd)
     let cursor = s.startedAt
     for (const p of [...pauses].sort((a, b) => a.start - b.start)) {
@@ -510,7 +514,17 @@ export default function Schedule() {
     if (!liveBelongsToSelectedDay || liveDurationSec <= 0) return merged
     return [
       ...merged,
-      { sessionType: liveSession.sessionType || 'focus', startedAt: liveSession.startedAt, durationSeconds: liveDurationSec },
+      {
+        sessionType: liveSession.sessionType || 'focus',
+        startedAt: liveSession.startedAt,
+        durationSeconds: liveDurationSec,
+        // Needed so scoreDay can reconstruct this still-running session's
+        // real (pause-excluded) timeline instead of falling back to the
+        // old compressed approximation — same reasoning as
+        // daySessionsDetailed just below.
+        pauseLog: liveSession.pauseLog,
+        stillLive: liveSession.status !== 'stopped',
+      },
     ]
   }, [daySessions, pendingCompleted, selectedDateId, liveBelongsToSelectedDay, liveSession, liveDurationSec])
 
@@ -576,11 +590,11 @@ export default function Schedule() {
     if (!insightsBlock || !daySessionsDetailed) return []
     return daySessionsDetailed
       .filter((s) => s.sessionType === insightsBlock.type)
-      .map((s) => {
-        const sessionEndMs = s.startedAt + s.durationSeconds * 1000
-        const overlapMs = Math.min(insightsBlock.graceEndMs, sessionEndMs) - Math.max(insightsBlock.startMs, s.startedAt)
-        return { ...s, sessionEndMs, overlapSec: Math.max(0, overlapMs) / 1000 }
-      })
+      // Same fragment-aware overlap scoreDay uses, so a session never
+      // gets silently dropped from (or wrongly added to) this list based
+      // on a naive "compressed" overlap that disagrees with what the
+      // badge above actually credited it for.
+      .map((s) => ({ ...s, overlapSec: sessionOverlapSec(s, insightsBlock) }))
       .filter((s) => s.overlapSec > 0)
       .sort((a, b) => a.startedAt - b.startedAt)
   }, [insightsBlock, daySessionsDetailed])

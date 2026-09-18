@@ -221,6 +221,123 @@ describe('scoreDay', () => {
   })
 })
 
+describe('scoreDay — paused sessions (fragment-based overlap)', () => {
+  test('a paused session is not compressed earlier in time — no phantom credit for time never studied inside the block', () => {
+    // 9-10am block, grace to 10:15. Studies 9:50-9:55 (5min, inside the
+    // block), takes a 45min break, resumes and studies 10:40-11:00
+    // (20min — well past the grace cutoff). Real overlap: only the
+    // 9:50-9:55 slice (5min) is inside the block-plus-grace window; the
+    // 10:40-11:00 slice starts after the 10:15 grace cutoff, so it
+    // contributes nothing. Real credit: 5 minutes.
+    // The old bug compressed the 25-minute total duration into one block
+    // starting at 9:50 (9:50-10:15), which lands entirely inside the
+    // grace window and wrongly credits the full 25 minutes.
+    const blocks = [{ id: 'b1', title: 'Physics', type: 'focus', startMs: day0 + 9 * HOUR, endMs: day0 + 10 * HOUR }]
+    const sessions = [{
+      sessionType: 'focus',
+      startedAt: day0 + 9 * HOUR + 50 * 60 * 1000,
+      durationSeconds: 25 * 60,
+      endedAt: day0 + 11 * HOUR, // real stop at 11:00
+      pauseLog: [{ start: day0 + 9 * HOUR + 55 * 60 * 1000, end: day0 + 10 * HOUR + 40 * 60 * 1000, type: 'pause' }],
+    }]
+    const { blocks: scored } = scoreDay(blocks, sessions)
+    assert.equal(scored[0].creditedSec, 5 * 60)
+    assert.equal(scored[0].status, 'short')
+  })
+
+  test('a paused session does not get its real, in-window overlap dragged out of the block by compression', () => {
+    // Block 9-10am, grace to 10:15. Studies 8:00-8:10 (10min, before the
+    // block), takes a 70min break, resumes and studies 9:20-9:40
+    // (20min, genuinely inside the block). Real credit: 20 minutes (the
+    // second stretch). The old bug compressed the 30-minute total
+    // duration into one block starting at 8:00 (8:00-8:30), dragging
+    // that real in-window study backward out of the block entirely and
+    // crediting 0 (reading as "missed" despite genuine study inside it).
+    const blocks = [{ id: 'b1', title: 'Physics', type: 'focus', startMs: day0 + 9 * HOUR, endMs: day0 + 10 * HOUR }]
+    const sessions = [{
+      sessionType: 'focus',
+      startedAt: day0 + 8 * HOUR,
+      durationSeconds: 30 * 60,
+      endedAt: day0 + 9 * HOUR + 40 * 60 * 1000,
+      pauseLog: [{ start: day0 + 8 * HOUR + 10 * 60 * 1000, end: day0 + 9 * HOUR + 20 * 60 * 1000, type: 'pause' }],
+    }]
+    const { blocks: scored } = scoreDay(blocks, sessions)
+    assert.equal(scored[0].creditedSec, 20 * 60)
+    assert.notEqual(scored[0].status, 'missed') // real study did land inside the block
+  })
+
+  test('grace only credits time actually spent studying past the scheduled end — sitting paused through it earns nothing', () => {
+    // 9-10am block. Studies 9:00-10:00 right on time, then stays paused
+    // straight through the whole 15-minute grace window instead of
+    // resuming. No studied time falls in the grace window, so it
+    // contributes zero — grace is not activated just because the pause
+    // happens to sit inside its clock range.
+    const blocks = [{ id: 'b1', title: 'Physics', type: 'focus', startMs: day0 + 9 * HOUR, endMs: day0 + 10 * HOUR }]
+    const sessions = [{
+      sessionType: 'focus',
+      startedAt: day0 + 9 * HOUR,
+      durationSeconds: 60 * 60,
+      endedAt: day0 + 10 * HOUR + 15 * 60 * 1000, // stayed paused right up to the grace edge
+      pauseLog: [{ start: day0 + 10 * HOUR, end: day0 + 10 * HOUR + 15 * 60 * 1000, type: 'pause' }],
+    }]
+    const { blocks: scored } = scoreDay(blocks, sessions)
+    assert.equal(scored[0].creditedSec, 60 * 60) // exactly the planned length, no bonus from the idle grace time
+    assert.equal(scored[0].status, 'done')
+  })
+
+  test('grace still credits real study time in the grace window, and a mid-session pause is correctly excluded either way', () => {
+    // 2-hour block (9-11am), grace to 11:15. Starts 20min late (9:20),
+    // takes a real 10min break (10:00-10:10), then keeps studying right
+    // up to 11:05 — 5 minutes into the grace window. Real studied time
+    // is two fragments: 9:20-10:00 (40min) and 10:10-11:05 (55min) = 95
+    // minutes, under the 2-hour plan, so nothing here is capped by the
+    // block's own planned length — this isolates the fragment math and
+    // the grace credit at the same time.
+    const blocks = [{ id: 'b1', title: 'Deep work', type: 'focus', startMs: day0 + 9 * HOUR, endMs: day0 + 11 * HOUR }]
+    const sessions = [{
+      sessionType: 'focus',
+      startedAt: day0 + 9 * HOUR + 20 * 60 * 1000,
+      durationSeconds: 95 * 60,
+      endedAt: day0 + 11 * HOUR + 5 * 60 * 1000,
+      pauseLog: [{ start: day0 + 10 * HOUR, end: day0 + 10 * HOUR + 10 * 60 * 1000, type: 'pause' }],
+    }]
+    const { blocks: scored } = scoreDay(blocks, sessions)
+    assert.equal(scored[0].creditedSec, 95 * 60)
+    assert.equal(scored[0].status, 'short') // 95 of 120 planned minutes
+  })
+
+  test('a session with no endedAt/pauseLog (pre-pause-tracking data) falls back to the old compressed approximation, unchanged', () => {
+    const blocks = [{ id: 'b1', title: 'Physics', type: 'focus', startMs: day0 + 8 * HOUR, endMs: day0 + 9 * HOUR }]
+    const sessions = [{ sessionType: 'focus', startedAt: day0 + 8 * HOUR, durationSeconds: 3600 }]
+    const { blocks: scored } = scoreDay(blocks, sessions)
+    assert.equal(scored[0].status, 'done')
+    assert.equal(scored[0].creditedSec, 3600)
+  })
+})
+
+describe('scoreDay — grace window never bleeds into the next calendar day', () => {
+  test('a block ending at 11:59pm only gets 1 minute of grace, not the full 15', () => {
+    const dayEnd = day0 + 24 * HOUR // local midnight starting the next day
+    const blocks = [{ id: 'b1', title: 'Late night', type: 'focus', startMs: dayEnd - 60 * 60 * 1000, endMs: dayEnd - 60 * 1000 }] // 10:59pm-11:59pm
+    const { blocks: scored } = scoreDay(blocks, [])
+    assert.equal(scored[0].graceEndMs, dayEnd) // capped at midnight, not 12:14am
+  })
+
+  test('a block ending at 11:50pm only gets 10 minutes of grace', () => {
+    const dayEnd = day0 + 24 * HOUR
+    const blocks = [{ id: 'b1', title: 'Late night', type: 'focus', startMs: dayEnd - 70 * 60 * 1000, endMs: dayEnd - 10 * 60 * 1000 }] // 10:50pm-11:50pm
+    const { blocks: scored } = scoreDay(blocks, [])
+    assert.equal(scored[0].graceEndMs, dayEnd - 10 * 60 * 1000 + 10 * 60 * 1000)
+    assert.equal(scored[0].graceEndMs, dayEnd)
+  })
+
+  test('a block ending well before midnight still gets its full 15-minute grace, unaffected by the day-end cap', () => {
+    const blocks = [{ id: 'b1', title: 'Physics', type: 'focus', startMs: day0 + 8 * HOUR, endMs: day0 + 9 * HOUR }]
+    const { blocks: scored } = scoreDay(blocks, [])
+    assert.equal(scored[0].graceEndMs, day0 + 9 * HOUR + 15 * 60 * 1000)
+  })
+})
+
 describe('summarize', () => {
   test('a perfect day gets an affirming line, not a percentage repeat', () => {
     const blocks = [{ id: 'b1', title: 'Physics', status: 'done' }]

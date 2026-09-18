@@ -62,8 +62,72 @@ import { formatDuration } from './format.js'
 // still nets a 15-minute shortfall even if you keep going well past
 // the scheduled end. The grace window is clamped so it never bleeds
 // into whatever block comes right after it (relevant if two blocks are
-// scheduled less than 15 minutes apart).
+// scheduled less than 15 minutes apart), and it never bleeds past the
+// end of the block's own calendar day either — a block ending at 11:59pm
+// only gets 1 minute of grace, not the full 15, so a "late" credit never
+// gets attributed to the wrong day.
 const GRACE_MS = 15 * 60 * 1000
+
+// End of the local calendar day that `ms` falls on (the next local
+// midnight). Used to stop a block's grace window from bleeding into the
+// next day — see the GRACE_MS note above.
+function endOfDayMs(ms) {
+  const d = new Date(ms)
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1, 0, 0, 0, 0).getTime()
+}
+
+// Reconstructs the real, fragmented "actually studying" timeline for one
+// session instead of treating it as one unbroken stretch from start to
+// start+duration. That naive shape is wrong for any paused session:
+// `durationSeconds` already has pause time subtracted out, so
+// `startedAt + durationSeconds*1000` silently slides everything after a
+// pause EARLIER in time, compressing the session into a shorter window
+// than it actually ran in. Depending on exactly where the pause falls
+// relative to a block's boundaries, that compression can credit time
+// that was never really inside the block (dragged in from later) just
+// as easily as it can drag real, valid overlap OUT of the block entirely
+// — i.e. it can over- or under-count in either direction, which is
+// exactly the "sometimes short, sometimes not" behavior this was built
+// to fix.
+//
+// Returns a list of { start, end } studied intervals with every logged
+// pause/break carved out. Only possible when the session actually
+// carries real timing data (a real end time, from `endedAt` or a still-
+// live session) — a session saved before pause logging existed has
+// neither `endedAt` nor `pauseLog`, so there's no way to recover where
+// its real pauses fell; those fall back to the old single-block
+// approximation, same as before this fix (no regression for old data).
+function studiedIntervals(session) {
+  const hasRealTiming = session.stillLive || session.endedAt != null
+  if (!hasRealTiming) {
+    return [{ start: session.startedAt, end: session.startedAt + session.durationSeconds * 1000 }]
+  }
+  const realEnd = session.stillLive ? Date.now() : session.endedAt
+  const pauses = [...(session.pauseLog || [])].sort((a, b) => a.start - b.start)
+  const intervals = []
+  let cursor = session.startedAt
+  for (const p of pauses) {
+    if (p.start > cursor) intervals.push({ start: cursor, end: p.start })
+    cursor = Math.max(cursor, p.end)
+  }
+  if (realEnd > cursor) intervals.push({ start: cursor, end: realEnd })
+  return intervals
+}
+
+// How many seconds of a session's real, pause-excluded studied time land
+// inside a block's window (through its grace extension). This is the
+// single source of truth for "overlap" — scoreDay uses it to score each
+// block, and the schedule page's own insights sheet uses the same
+// function so the per-session breakdown it shows can never disagree with
+// the badge/percentage above it.
+export function sessionOverlapSec(session, block) {
+  let sec = 0
+  for (const iv of studiedIntervals(session)) {
+    const overlapMs = Math.min(block.graceEndMs, iv.end) - Math.max(block.startMs, iv.start)
+    if (overlapMs > 0) sec += overlapMs / 1000
+  }
+  return sec
+}
 
 export function scoreDay(blocks, sessions, now = Infinity) {
   let totalPlannedSec = 0
@@ -76,8 +140,14 @@ export function scoreDay(blocks, sessions, now = Infinity) {
     // Computed up front, before the upcoming/scored branch, so a caller
     // (e.g. a "Live" indicator on the schedule page) can tell exactly
     // when a block's own credit window actually closes — whether the
-    // block has been scored yet or not.
-    const graceEndMs = nextBlock ? Math.min(block.endMs + GRACE_MS, nextBlock.startMs) : block.endMs + GRACE_MS
+    // block has been scored yet or not. Clamped against whichever comes
+    // first: the next block's own start, or the end of the calendar day
+    // the block itself belongs to.
+    const graceEndMs = Math.min(
+      block.endMs + GRACE_MS,
+      nextBlock ? nextBlock.startMs : Infinity,
+      endOfDayMs(block.startMs),
+    )
 
     if (now < block.endMs) {
       return { ...block, status: 'upcoming', creditedSec: 0, actualSec: 0, shortfallSec: plannedSec, graceEndMs }
@@ -87,9 +157,7 @@ export function scoreDay(blocks, sessions, now = Infinity) {
     let overlapSec = 0
     for (const s of sessions) {
       if (s.sessionType !== block.type) continue
-      const sessionEndMs = s.startedAt + s.durationSeconds * 1000
-      const overlapMs = Math.min(graceEndMs, sessionEndMs) - Math.max(block.startMs, s.startedAt)
-      if (overlapMs > 0) overlapSec += overlapMs / 1000
+      overlapSec += sessionOverlapSec(s, { startMs: block.startMs, graceEndMs })
     }
 
     const creditedSec = Math.min(overlapSec, plannedSec)
