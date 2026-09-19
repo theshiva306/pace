@@ -175,12 +175,6 @@ export async function saveSession({ uid, session, durationSeconds }) {
   }
 }
 
-export async function deleteSession({ uid, sessionId }) {
-  if (!sessionId) return
-  await remove(ref(db, `completedSessions/${uid}/${sessionId}`))
-  await ensureUserStats(uid)
-}
-
 export async function deletePersonalData(uid) {
   if (!uid) throw new Error('Missing user id')
 

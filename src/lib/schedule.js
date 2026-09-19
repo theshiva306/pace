@@ -57,18 +57,40 @@ export async function deleteScheduleBlock(uid, dateId, blockId) {
   await remove(ref(db, `schedules/${uid}/${dateId}/${blockId}`))
 }
 
+// A session crossing midnight (e.g. starting 11:58pm, still running into
+// the new day) needs to be visible to blocks on the FOLLOWING day for
+// those blocks to credit it at all — without this, such a session is
+// simply absent from that day's data entirely, not just short-changed
+// by the block's own grace window (which is a separate, already-handled
+// concern — see lib/adherence.js's day-boundary grace cap). 3 hours
+// comfortably covers any realistic session length that could still be
+// mid-flight from the evening before; a session that started much
+// earlier than that and is still running is a rare enough edge case not
+// to chase here.
+const CROSS_MIDNIGHT_LOOKBACK_MS = 3 * 60 * 60 * 1000
+
 // One-time fetch of completed sessions that *started* on the given
 // calendar day — used both to score that day's adherence and to total
 // up its actual studied time by type for the weekly graph. Relies on
 // completedSessions/$uid being indexed on startedAt (see
 // database.rules.json) so this stays a targeted range query rather than
 // a full-history scan as someone's session history grows.
-export async function fetchSessionsForDay(uid, dateId) {
+//
+// includePriorEvening: widens the query's lower bound to also catch a
+// session that started up to CROSS_MIDNIGHT_LOOKBACK_MS before this
+// day's own midnight. Deliberately opt-in, NOT the default — this
+// function's OTHER caller, fetchWeekActualTotals, sums each day's own
+// total from it; widening there would double-count a crossing session
+// under both days' totals. Only Schedule.jsx's own per-day fetch (which
+// scores overlap precisely against each block's real window, naturally
+// excluding anything that doesn't truly overlap it) opts in.
+export async function fetchSessionsForDay(uid, dateId, { includePriorEvening = false } = {}) {
   const { start, end } = dayBoundsMs(dateId)
+  const queryStart = includePriorEvening ? start - CROSS_MIDNIGHT_LOOKBACK_MS : start
   const sessionsQuery = query(
     ref(db, `completedSessions/${uid}`),
     orderByChild('startedAt'),
-    startAt(start),
+    startAt(queryStart),
     endAt(end - 1),
   )
   const snap = await get(sessionsQuery)

@@ -538,7 +538,14 @@ export default function Schedule() {
   useEffect(() => {
     setDaySessions(undefined)
     setCopyNote('')
-    fetchSessionsForDay(user.uid, selectedDateId).then(setDaySessions).catch(() => setDaySessions([]))
+    // Includes sessions that started the evening before selectedDateId
+    // too (see fetchSessionsForDay's includePriorEvening) -- a session
+    // running from 11:58pm into the new day needs to be visible here for
+    // a block right at the start of THIS day to credit it at all.
+    // Without this, a session crossing midnight is invisible to the next
+    // day's blocks entirely, not just short-changed by the grace window
+    // (which is a separate, already-handled concern in lib/adherence.js).
+    fetchSessionsForDay(user.uid, selectedDateId, { includePriorEvening: true }).then(setDaySessions).catch(() => setDaySessions([]))
     // Re-fetch whenever the live session's own identity changes (one
     // starts, stops, or a different one begins) — not just on day/user
     // change. Otherwise, finally tapping "Save" on a session that was
@@ -565,9 +572,18 @@ export default function Schedule() {
   const daySessionsWithLive = useMemo(() => {
     if (!daySessions) return daySessions
     const knownStarts = new Set(daySessions.map((s) => s.startedAt))
-    const pendingForDay = pendingCompleted.filter(
-      (s) => !knownStarts.has(s.startedAt) && dayId(new Date(s.startedAt)) === selectedDateId,
-    )
+    // Same widened range as fetchSessionsForDay's includePriorEvening: a
+    // pending session that started the evening before selectedDateId is
+    // still a legitimate candidate for this day's blocks (crossing
+    // midnight) -- not narrowed to selectedDateId alone, but also not
+    // left unfiltered (a stale pending entry from weeks ago has no
+    // business showing up while looking at today).
+    const previousDateId = addDays(selectedDateId, -1)
+    const pendingForDay = pendingCompleted.filter((s) => {
+      if (knownStarts.has(s.startedAt)) return false
+      const d = dayId(new Date(s.startedAt))
+      return d === selectedDateId || d === previousDateId
+    })
     const merged = pendingForDay.length > 0 ? [...daySessions, ...pendingForDay] : daySessions
     if (!liveBelongsToSelectedDay || liveDurationSec <= 0) return merged
     return [
@@ -593,9 +609,12 @@ export default function Schedule() {
   const daySessionsDetailed = useMemo(() => {
     if (!daySessions) return daySessions
     const knownStarts = new Set(daySessions.map((s) => s.startedAt))
-    const pendingForDay = pendingCompleted.filter(
-      (s) => !knownStarts.has(s.startedAt) && dayId(new Date(s.startedAt)) === selectedDateId,
-    )
+    const previousDateId = addDays(selectedDateId, -1)
+    const pendingForDay = pendingCompleted.filter((s) => {
+      if (knownStarts.has(s.startedAt)) return false
+      const d = dayId(new Date(s.startedAt))
+      return d === selectedDateId || d === previousDateId
+    })
     const merged = pendingForDay.length > 0 ? [...daySessions, ...pendingForDay] : daySessions
     if (!liveBelongsToSelectedDay || liveDurationSec <= 0) return merged
     return [
