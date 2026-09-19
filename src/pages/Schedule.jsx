@@ -352,10 +352,16 @@ function SessionInsightsSheet({ block, sessions, onClose }) {
           )
         })}
       </div>
-      <div className="flex justify-between text-[10px] text-text-faint mb-4">
-        <span>{formatMessageTime(block.startMs)}</span>
-        <span>{formatMessageTime(block.endMs)}</span>
-        {graceActive && <span>{formatMessageTime(displayBlock.graceEndMs)}</span>}
+      <div className="relative h-3.5 text-[10px] text-text-faint mb-4">
+        <span className="absolute left-0">{formatMessageTime(block.startMs)}</span>
+        {/* Right-anchored at the exact point where the planned block ends
+            (the same plannedPct the bar segments above use), not centered
+            or evenly spaced — a centered label would drift away from the
+            actual planned/grace boundary any time the grace slice isn't
+            roughly half the bar's width, which is most of the time. */}
+        <span className="absolute -translate-x-full" style={{ left: `${plannedPct}%` }}>
+          {formatMessageTime(block.endMs)}
+        </span>
       </div>
 
       <div className="grid grid-cols-2 gap-x-3 gap-y-2.5 mb-5">
