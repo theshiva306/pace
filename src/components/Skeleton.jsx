@@ -98,3 +98,27 @@ export function GroupHeaderSkeleton() {
     </div>
   )
 }
+
+// Row placeholders for the Schedule tab's block list while the day's
+// sessions are still being fetched/scored — mirrors BlockRow's own
+// shape (title + time/type line, badge-sized chip on the right) instead
+// of a plain "Loading…" line that doesn't match the loading language
+// every other page in the app uses.
+export function ScheduleListSkeleton({ rows = 3 }) {
+  return (
+    <div className="flex flex-col gap-2.5">
+      {Array.from({ length: rows }).map((_, i) => (
+        <div
+          key={i}
+          className="flex items-center gap-3 px-3.5 py-3 bg-surface border border-border rounded-xl border-l-[3px] border-l-border-soft"
+        >
+          <div className="flex-1 min-w-0 flex flex-col gap-2">
+            <SkelLine width="45%" />
+            <SkelLine width="60%" className="h-2.5" />
+          </div>
+          <SkelBlock className="h-6 w-16" rounded="rounded-md" />
+        </div>
+      ))}
+    </div>
+  )
+}

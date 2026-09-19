@@ -4,6 +4,16 @@
   --font-display: "Space Grotesk", ui-sans-serif, sans-serif;
   --font-sans: "Inter", ui-sans-serif, sans-serif;
 
+  /* Every semantic color below (except the neutrals and league tiers)
+     comes in a main/soft pair: the "main" shade is for text, icons, and
+     borders — anything that needs to read as that color at small sizes.
+     The "-soft" shade is a low-luminance tint of the same hue, meant
+     ONLY as a background sitting behind its own main color (a badge's
+     fill behind its own text, a chip behind its own icon) — never as a
+     background for unrelated content, and never used for text itself
+     (too low-contrast against --color-bg to read reliably). When adding
+     a new semantic color, add both shades together, at roughly the same
+     relationship you see between e.g. --color-warn and --color-warn-soft. */
   --color-bg: #0a0b0d;
   --color-surface: #141519;
   --color-elevated: #1c1e23;
@@ -59,6 +69,20 @@
   ::selection {
     background: var(--color-accent);
     color: #0a0b0d;
+  }
+  /* :focus-visible only (not plain :focus), so this shows for keyboard/
+     external-keyboard navigation without adding a ring on every tap —
+     touch and mouse clicks don't trigger :focus-visible in modern
+     browsers. There was no focus state at all before this; harmless on
+     a touch-only session, but a real gap for keyboard navigation.
+     No border-radius override here on purpose — modern browsers already
+     round the outline to match each element's own border-radius
+     automatically, and setting one here would instead FORCE every
+     element (including rounded-full circular buttons) to a flat 4px
+     corner, breaking their actual shape. */
+  a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
   }
 }
 

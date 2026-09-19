@@ -15,6 +15,7 @@ import { readPendingCompleted } from '../lib/pendingCompleted'
 import Sheet from '../components/Sheet'
 import Button from '../components/Button'
 import SegmentedControl from '../components/SegmentedControl'
+import { ScheduleListSkeleton } from '../components/Skeleton'
 import {
   PlusIcon, TrashIcon, CopyIcon, QuestionIcon, ChevronLeft, ChevronRight,
 } from '../components/icons'
@@ -888,7 +889,7 @@ export default function Schedule() {
       </div>
 
       <div className="flex flex-col gap-2.5 mb-4">
-        {rows === undefined && <div className="text-sm text-text-faint py-4 text-center">Loading…</div>}
+        {rows === undefined && <ScheduleListSkeleton />}
         {rows && rows.length === 0 && (
           <div className="flex flex-col items-center gap-3 py-6 text-center">
             <div className="text-sm text-text-faint">
