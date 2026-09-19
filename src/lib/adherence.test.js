@@ -285,6 +285,32 @@ describe('scoreDay — paused sessions (fragment-based overlap)', () => {
     assert.equal(scored[0].status, 'done')
   })
 
+  test('a stillLive flag on the session no longer overrides endedAt — the exact regression this consolidation fixed', () => {
+    // The real bug: caller-side code used to pass a boolean "stillLive"
+    // flag and let THIS function substitute Date.now() whenever it was
+    // true — which wrongly treated a session that's merely "not yet
+    // stopped" (e.g. currently paused, sitting mid-break) as if it were
+    // actively accruing studied time all the way up to the current
+    // instant. There's no such branch left at all now: whatever endedAt
+    // the caller passes is trusted as-is, even with a stillLive flag
+    // also present on the object.
+    const blocks = [{ id: 'b1', title: 'Physics', type: 'focus', startMs: day0 + 9 * HOUR, endMs: day0 + 10 * HOUR }]
+    const frozenPauseMs = day0 + 9 * HOUR + 10 * 60 * 1000 // paused 10 minutes in
+    const sessions = [{
+      sessionType: 'focus',
+      startedAt: day0 + 9 * HOUR,
+      durationSeconds: 10 * 60,
+      endedAt: frozenPauseMs, // the moment it paused -- NOT Date.now()
+      pauseLog: [],
+      stillLive: true, // present, but must not change the result
+    }]
+    const { blocks: scored } = scoreDay(blocks, sessions)
+    // Credited exactly the 10 minutes up to the pause — not however
+    // much real time has passed since, whatever "now" happens to be
+    // when this test runs.
+    assert.equal(scored[0].creditedSec, 10 * 60)
+  })
+
   test('grace still credits real study time in the grace window, and a mid-session pause is correctly excluded either way', () => {
     // 2-hour block (9-11am), grace to 11:15. Starts 20min late (9:20),
     // takes a real 10min break (10:00-10:10), then keeps studying right

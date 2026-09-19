@@ -92,17 +92,23 @@ function endOfDayMs(ms) {
 //
 // Returns a list of { start, end } studied intervals with every logged
 // pause/break carved out. Only possible when the session actually
-// carries real timing data (a real end time, from `endedAt` or a still-
-// live session) — a session saved before pause logging existed has
-// neither `endedAt` nor `pauseLog`, so there's no way to recover where
-// its real pauses fell; those fall back to the old single-block
-// approximation, same as before this fix (no regression for old data).
+// carries real timing data (a real end time, in `endedAt`) — a session
+// saved before pause logging existed has neither `endedAt` nor
+// `pauseLog`, so there's no way to recover where its real pauses fell;
+// those fall back to the old single-block approximation, same as before
+// this fix (no regression for old data).
+//
+// `endedAt` must be the session's real, current end moment — for an
+// in-progress session that's actively studying right now, the CALLER is
+// responsible for passing the live "now" (re-passed on every re-render
+// so it keeps ticking); for one that's currently paused or on a break,
+// the caller must pass the moment it paused, frozen, NOT "now" — this
+// function has no way to tell "genuinely still studying" apart from
+// "merely not yet stopped" on its own, so it never guesses.
 function studiedIntervals(session) {
-  const hasRealTiming = session.stillLive || session.endedAt != null
-  if (!hasRealTiming) {
+  if (session.endedAt == null) {
     return [{ start: session.startedAt, end: session.startedAt + session.durationSeconds * 1000 }]
   }
-  const realEnd = session.stillLive ? Date.now() : session.endedAt
   const pauses = [...(session.pauseLog || [])].sort((a, b) => a.start - b.start)
   const intervals = []
   let cursor = session.startedAt
@@ -110,7 +116,7 @@ function studiedIntervals(session) {
     if (p.start > cursor) intervals.push({ start: cursor, end: p.start })
     cursor = Math.max(cursor, p.end)
   }
-  if (realEnd > cursor) intervals.push({ start: cursor, end: realEnd })
+  if (session.endedAt > cursor) intervals.push({ start: cursor, end: session.endedAt })
   return intervals
 }
 

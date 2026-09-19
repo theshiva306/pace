@@ -138,11 +138,15 @@ function buildTimelineSegments(block, sessions) {
 
   const intervals = []
   for (const s of sessions) {
-    // Real stop time when we have one; falls back to the old compressed
-    // approximation only for sessions saved before `endedAt` existed —
-    // there's no real timing data to recover for those. See
-    // lib/adherence.js's studiedIntervals for the same fallback.
-    const sessionEnd = s.stillLive ? Date.now() : (s.endedAt ?? (s.startedAt + s.durationSeconds * 1000))
+    // endedAt is already the correct, current real end for whatever
+    // state the session is in — actively studying (ticking "now"),
+    // paused/on a break (frozen at the pause), or genuinely finished.
+    // No separate "is it still live" branch here on purpose: that used
+    // to independently decide "treat this as up-to-the-minute" using
+    // only a not-yet-stopped flag, which wrongly extended a currently
+    // PAUSED session's timeline all the way to right now — see
+    // lib/adherence.js's studiedIntervals for the fuller explanation.
+    const sessionEnd = s.endedAt ?? (s.startedAt + s.durationSeconds * 1000)
     const pauses = (s.pauseLog || []).filter((p) => p.end > winStart && p.start < winEnd)
     let cursor = s.startedAt
     for (const p of [...pauses].sort((a, b) => a.start - b.start)) {
@@ -561,6 +565,13 @@ export default function Schedule() {
   const isFuture = selectedDateId > todayId
   const isToday = selectedDateId === todayId
 
+  // Real "now" for live-session math -- recomputed fresh every render
+  // (this component already re-renders every second while a live
+  // session exists, via useSessionClock's own internal tick). Needed up
+  // here (not just for the Live-badge lookup further below) because the
+  // merged live session entry below needs it to build its own endedAt.
+  const liveNow = Date.now() + serverOffset
+
   // Today's fetched (completed) sessions, plus:
   //  - any locally-saved-but-not-yet-synced session for this day
   //    (pendingCompleted, filtered to this day and deduped against
@@ -568,8 +579,25 @@ export default function Schedule() {
   //    Firebase in the same beat it'd otherwise flush and get removed
   //    from the local queue), and
   //  - the live/stopped-pending one, if there is one for this day
-  // — so scoring and totals both reflect what's actually happened, not
-  // just what's already confirmed synced.
+  // — so scoring, the insights sheet, and totals all reflect what's
+  // actually happened, not just what's already confirmed synced.
+  //
+  // Kept in full detail (id, endedAt, pauseLog) rather than a separate
+  // lean shape for scoring vs. a separate detailed one for the insights
+  // sheet — this used to be two nearly-identical copies of the same
+  // merge, which is exactly how a real bug went unnoticed: the live
+  // entry's endedAt/realEnd was being derived two different ways in two
+  // different places. One of those ways used a plain "is this session
+  // stopped yet?" flag to decide whether to treat its end as "right
+  // now" — which is wrong for a session that's currently paused or on a
+  // break (not stopped, but also not actively accruing studied time
+  // right now): it would count from the moment it paused all the way to
+  // "now" as if you were still studying through the pause. endedAt
+  // below is computed once, correctly, for whichever state the live
+  // session is actually in — active, paused/on a break, or sitting
+  // stopped-but-unsaved on the Save screen — and lib/adherence.js's own
+  // studiedIntervals now trusts endedAt alone rather than guessing from
+  // a separate "still live" flag.
   const daySessionsWithLive = useMemo(() => {
     if (!daySessions) return daySessions
     const knownStarts = new Set(daySessions.map((s) => s.startedAt))
@@ -587,37 +615,16 @@ export default function Schedule() {
     })
     const merged = pendingForDay.length > 0 ? [...daySessions, ...pendingForDay] : daySessions
     if (!liveBelongsToSelectedDay || liveDurationSec <= 0) return merged
-    return [
-      ...merged,
-      {
-        sessionType: liveSession.sessionType || 'focus',
-        startedAt: liveSession.startedAt,
-        durationSeconds: liveDurationSec,
-        // Needed so scoreDay can reconstruct this still-running session's
-        // real (pause-excluded) timeline instead of falling back to the
-        // old compressed approximation — same reasoning as
-        // daySessionsDetailed just below.
-        pauseLog: liveSession.pauseLog,
-        stillLive: liveSession.status !== 'stopped',
-      },
-    ]
-  }, [daySessions, pendingCompleted, selectedDateId, liveBelongsToSelectedDay, liveSession, liveDurationSec])
-
-  // Same idea as daySessionsWithLive, but keeping every field (id,
-  // endedAt, pauseLog) instead of the lean shape scoreDay needs -- this
-  // is purely for the "why did this block score the way it did"
-  // insights sheet below, never fed into scoring itself.
-  const daySessionsDetailed = useMemo(() => {
-    if (!daySessions) return daySessions
-    const knownStarts = new Set(daySessions.map((s) => s.startedAt))
-    const previousDateId = addDays(selectedDateId, -1)
-    const pendingForDay = pendingCompleted.filter((s) => {
-      if (knownStarts.has(s.startedAt)) return false
-      const d = dayId(new Date(s.startedAt))
-      return d === selectedDateId || d === previousDateId
-    })
-    const merged = pendingForDay.length > 0 ? [...daySessions, ...pendingForDay] : daySessions
-    if (!liveBelongsToSelectedDay || liveDurationSec <= 0) return merged
+    // Actively studying right now -> the live, ticking clock. Paused or
+    // on a break -> frozen at the exact moment it paused, since nothing
+    // is accruing until it's resumed. Sitting stopped-but-unsaved on the
+    // Save screen -> the real stop moment, not whenever Save eventually
+    // gets tapped.
+    const liveEndedAt = liveSession.status === 'stopped'
+      ? liveSession.stoppedAt
+      : liveSession.status === 'active'
+        ? liveNow
+        : liveSession.pausedAt
     return [
       ...merged,
       {
@@ -625,12 +632,16 @@ export default function Schedule() {
         sessionType: liveSession.sessionType || 'focus',
         startedAt: liveSession.startedAt,
         durationSeconds: liveDurationSec,
-        endedAt: liveSession.status === 'stopped' ? liveSession.stoppedAt : null, // null while still actually live
+        endedAt: liveEndedAt,
         pauseLog: liveSession.pauseLog,
+        // Display-only from here on (the insights sheet's "→ now" label)
+        // -- the scoring math above no longer branches on this; endedAt
+        // is already the single correct value for whatever state the
+        // session is actually in.
         stillLive: liveSession.status !== 'stopped',
       },
     ]
-  }, [daySessions, pendingCompleted, selectedDateId, liveBelongsToSelectedDay, liveSession, liveDurationSec])
+  }, [daySessions, pendingCompleted, selectedDateId, liveBelongsToSelectedDay, liveSession, liveDurationSec, liveNow])
 
   const scored = useMemo(() => {
     if (isFuture || !blocks || !daySessionsWithLive) return null
@@ -665,8 +676,8 @@ export default function Schedule() {
   // can actually see which session (and which part of it) explains the
   // result, instead of just the final badge.
   const insightsSessions = useMemo(() => {
-    if (!insightsBlock || !daySessionsDetailed) return []
-    return daySessionsDetailed
+    if (!insightsBlock || !daySessionsWithLive) return []
+    return daySessionsWithLive
       .filter((s) => s.sessionType === insightsBlock.type)
       // Same fragment-aware overlap scoreDay uses, so a session never
       // gets silently dropped from (or wrongly added to) this list based
@@ -675,7 +686,7 @@ export default function Schedule() {
       .map((s) => ({ ...s, overlapSec: sessionOverlapSec(s, insightsBlock) }))
       .filter((s) => s.overlapSec > 0)
       .sort((a, b) => a.startedAt - b.startedAt)
-  }, [insightsBlock, daySessionsDetailed])
+  }, [insightsBlock, daySessionsWithLive])
 
   // Which block (if any) counts as "Live" right now — a session of the
   // matching type is actually running (not paused/on-break is fine, not
@@ -684,7 +695,6 @@ export default function Schedule() {
   // "isToday") for the same midnight reason as above — this needs to
   // keep working for a late-night block on selectedDateId even in the
   // few minutes right after the calendar rolls over to a new day.
-  const liveNow = Date.now() + serverOffset
   const liveBlockId = (() => {
     if (!liveSession || liveSession.status === 'stopped' || !liveBelongsToSelectedDay) return null
     const liveType = liveSession.sessionType || 'focus'
